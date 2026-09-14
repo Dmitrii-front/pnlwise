@@ -139,14 +139,15 @@ test("large unidentified credits must be reviewed", () => {
   assert.equal(t.categoryId, "unknown");
   assert.equal(needsReview(t), true);
 });
-test("possible duplicates across statements are flagged, not silently excluded", () => {
+test("possible duplicates within or across statements are flagged, not silently excluded", () => {
   const t = tx("Supplier", "-100");
   const duplicate = { ...t, id: "second", statementId: "s2" };
   const result = detectDuplicates([t, duplicate], []);
   assert.equal(result[1].duplicateOf, t.id);
   assert.equal(result[1].isDuplicate, false);
   const sameStatement = detectDuplicates([t, { ...t, id: "third" }], []);
-  assert.equal(sameStatement[1].duplicateOf, undefined);
+  assert.equal(sameStatement[1].duplicateOf, t.id);
+  assert.equal(sameStatement[1].isDuplicate, false);
 });
 test("distinct known accounts prevent false duplicate matching", () => {
   const t = tx("Software", "-10");

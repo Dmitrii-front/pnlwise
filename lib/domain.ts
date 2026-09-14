@@ -270,10 +270,10 @@ export function detectDuplicates(ts: Transaction[], statements: Statement[]) {
     const matches = seen.get(k) || [];
     const previous = matches.find(
       (p) =>
-        p.statementId !== t.statementId &&
-        (!account ||
-          !accounts.get(p.statementId) ||
-          account === accounts.get(p.statementId)),
+        p.statementId === t.statementId ||
+        !account ||
+        !accounts.get(p.statementId) ||
+        account === accounts.get(p.statementId),
     );
     matches.push(t);
     seen.set(k, matches);
@@ -283,7 +283,7 @@ export function detectDuplicates(ts: Transaction[], statements: Statement[]) {
           duplicateOf: previous.id,
           confidence: 0.5,
           aiReason:
-            "Possible overlap across statements. Confirm duplicate or keep this transaction.",
+            "Possible duplicate transaction. Confirm duplicate or keep this transaction.",
         }
       : t;
   });
