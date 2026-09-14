@@ -21,7 +21,7 @@ export const config = {
     process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@example.invalid",
   siteUrl:
     process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://clearledger-pnl.icy-gnome-8351.chatgpt.site",
+    "https://example.invalid",
   priceCents: bounded(
     process.env.NEXT_PUBLIC_REPORT_PRICE_CENTS,
     1299,
