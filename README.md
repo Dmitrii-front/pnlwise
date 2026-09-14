@@ -62,7 +62,9 @@ Use Stripe test mode and Stripe CLI to validate real Checkout and webhook delive
 
 ### OpenAI categorization
 
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` to an available Structured Outputs-capable model. The Responses API uses a strict JSON schema, `store: false`, explicit category enums, a Zod response validator, and exact transaction ID matching. Unknown rows are sent in bounded batches; descriptions are truncated and long numeric sequences are redacted. This is data minimization, not comprehensive PII removal. Confirm the provider's applicable data controls before commercial use.
+Set `OPENAI_API_KEY` and `OPENAI_MODEL` to an available Structured Outputs-capable model. The Responses API uses a strict JSON schema, `store: false`, explicit category and transaction-type enums, a Zod response validator, and exact transaction ID matching. Unknown and medium-confidence non-exclusion rows are sent in bounded batches; descriptions are truncated and long numeric sequences are redacted. AI exclusions and incoming credits of $5,000 or more remain in Review regardless of model confidence. This is data minimization, not comprehensive PII removal. Confirm the provider's applicable data controls before commercial use.
+
+Run `npm run test:ai-qa` with those environment variables to evaluate the mixed CSV/XLSX/PDF fixture. It reports the rules-only and AI Review counts, incorrect classifications, abstentions, and threshold results without printing the API key.
 
 AI failure preserves extracted data and falls back to manual review. Large incoming AI-classified payments remain below the review threshold. Rules-only processing works with no API key.
 

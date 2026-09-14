@@ -1,0 +1,17 @@
+Date,Description,Amount,Direction,Expected Category,Expected Type,Expected Confidence,QA Note
+2026-01-03,STRIPE PAYOUT ST-0103,8200.0,credit,Sales / Service Revenue,income,High,Count as revenue
+2026-01-05,ACH CREDIT CLIENT A INV-1042,3500.0,credit,Sales / Service Revenue,income,High,Count as revenue
+2026-01-06,HOME DEPOT #0412,-1450.0,debit,Materials,expense,High,COGS
+2026-01-07,ABC PLUMBING SUPPLY,-780.0,debit,Materials,expense,High,COGS
+2026-01-09,GOOGLE ADS 784510,-650.0,debit,Advertising & Marketing,expense,High,Operating expense
+2026-01-10,QUICKBOOKS ONLINE,-85.0,debit,Software & Subscriptions,expense,High,Operating expense
+2026-01-12,ACH OFFICE RENT JAN,-1800.0,debit,Rent,expense,High,Operating expense
+2026-01-15,GUSTO PAYROLL,-2400.0,debit,Payroll,expense,High,Operating expense
+2026-01-17,STATE FARM BUSINESS,-210.0,debit,Insurance,expense,High,Operating expense
+2026-01-20,SHELL OIL 5743,-185.0,debit,Vehicle,expense,Medium,Operating expense
+2026-01-22,MONTHLY SERVICE FEE,-25.0,debit,Bank Fees,expense,High,Operating expense
+2026-01-23,TRANSFER TO BUSINESS SAVINGS 2711,-2000.0,debit,Transfer,transfer,High,Exclude from P&L
+2026-01-25,OWNER DRAW,-1200.0,debit,Owner Draw,owner_draw,High,Exclude from P&L
+2026-01-27,AMAZON MKTPLACE PMTS,-347.0,debit,Office Expenses,expense,Review,Should require review; expected final category Office Expenses
+2026-01-29,THE LOCAL KITCHEN,-120.0,debit,Meals,expense,Medium,Operating expense
+2026-01-30,STRIPE PROCESSING FEE,-246.0,debit,Merchant Fees,expense,High,Operating expense
