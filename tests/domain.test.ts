@@ -110,6 +110,15 @@ test("credit expense refunds and debit revenue refunds offset original categorie
   assert.equal(result.opex, 4000);
   assert.equal(result.netProfit, 4000);
 });
+test("confirmed refund or reversal exclusions no longer need review", () => {
+  const reversal = setCategory(
+    classify(tx("Reversal monthly service fee", "30")),
+    "refund",
+  );
+  assert.equal(needsReview(reversal), false);
+  assert.equal(pnl([reversal]).excludedCount, 1);
+  assert.equal(pnl([reversal]).netProfit, 0);
+});
 test("loan proceeds, principal, owners and transfers excluded; no invented interest", () => {
   const ts = [
     "Loan deposit",

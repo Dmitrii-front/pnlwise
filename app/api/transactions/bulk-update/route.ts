@@ -53,9 +53,9 @@ export const POST = (req: Request) =>
     report.transactions = report.transactions.map((t) => {
       if (!ids.has(t.id)) return t;
       const category = input.categoryId || t.categoryId;
-      if (["unknown", "refund"].includes(category))
+      if (category === "unknown")
         throw new AppError(
-          "Choose an income, expense, or exclusion category before confirming. For refunds, choose the original category.",
+          "Choose an income, expense, or exclusion category before confirming.",
         );
       return setCategory(
         {

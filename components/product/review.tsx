@@ -484,9 +484,7 @@ export default function Review({ id }: { id: string }) {
                         <Button
                           variant="ghost"
                           aria-label={`Confirm ${t.rawDescription}`}
-                          disabled={
-                            busy || ["unknown", "refund"].includes(t.categoryId)
-                          }
+                          disabled={busy || t.categoryId === "unknown"}
                           onClick={() => void update([t.id])}
                         >
                           Confirm
