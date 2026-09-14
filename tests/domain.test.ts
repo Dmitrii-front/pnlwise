@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import {
   parseCsv,
   parseXlsx,
@@ -28,6 +31,11 @@ const tx = (description: string, amount: string, date = "2026-01-01") =>
     "s1",
   )[0];
 const pnl = (ts: Transaction[]) => calculatePnl(ts, "2026-01-01", "2026-12-31");
+const arrayBuffer = (bytes: Uint8Array) =>
+  bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 test("parses cents exactly and rejects malformed amounts", () => {
   assert.equal(cents("1,234.56"), 123456);
   assert.equal(cents("(42.19)"), -4219);
@@ -205,6 +213,70 @@ test("reads actual XLSX dates and amounts", async () => {
   );
   assert.equal(rows[0].amount, 12345);
   assert.equal(rows[0].date, "2026-01-01");
+});
+test("reads namespace-prefixed XLSX and preserves every source row", async () => {
+  const bytes = await readFile(
+    resolve("tests/fixtures/02_February_Statement.xlsx"),
+  );
+  const rows = await parseXlsx(arrayBuffer(bytes), "february-xlsx");
+  const metaAds = rows.filter((row) => row.rawDescription === "META ADS 77841");
+  assert.equal(rows.length, 19);
+  assert.equal(metaAds.length, 2);
+  assert.deepEqual(
+    metaAds.map(({ date, amount, direction }) => ({ date, amount, direction })),
+    [
+      { date: "2026-02-09", amount: 72000, direction: "debit" },
+      { date: "2026-02-09", amount: 72000, direction: "debit" },
+    ],
+  );
+});
+test("reports corrupted, encrypted, unsupported, and generic XLSX failures separately", async () => {
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(new TextEncoder().encode("not a zip")), "bad"),
+    /corrupted or incomplete/,
+  );
+
+  const compoundHeader = Uint8Array.from([
+    0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+  ]);
+  const encryptedPackage = Uint8Array.from(
+    [..."EncryptedPackage"].flatMap((character) => [
+      character.charCodeAt(0),
+      0,
+    ]),
+  );
+  const encrypted = new Uint8Array(
+    compoundHeader.length + encryptedPackage.length,
+  );
+  encrypted.set(compoundHeader);
+  encrypted.set(encryptedPackage, compoundHeader.length);
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(encrypted), "encrypted"),
+    /encrypted or password-protected/,
+  );
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(compoundHeader), "legacy"),
+    /unsupported Excel format or feature/,
+  );
+
+  const workbook = new ExcelJS.Workbook();
+  workbook
+    .addWorksheet("Transactions")
+    .addRow(["Date", "Description", "Amount"]);
+  const valid = await workbook.xlsx.writeBuffer();
+  const zip = await JSZip.loadAsync(new Uint8Array(valid));
+  zip.file(
+    "xl/workbook.xml",
+    '<?xml version="1.0"?><x:workbook xmlns:x="urn:unknown"><x:sheets /></x:workbook>',
+  );
+  const unexpected = await zip.generateAsync({ type: "uint8array" });
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(unexpected), "unexpected"),
+    (error: unknown) =>
+      error instanceof ParseError &&
+      /couldn’t parse this workbook reliably/.test(error.message) &&
+      !/password/i.test(error.message),
+  );
 });
 test("reads signed PDF transaction rows; rejects scanned and broken PDFs", async () => {
   const pdf = await PDFDocument.create(),

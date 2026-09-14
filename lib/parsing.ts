@@ -253,8 +253,78 @@ export function parseCsv(text: string, id: string, mapping?: Mapping) {
     );
   return parseRows(parsed.data, id, mapping);
 }
+
+type XlsxFailure = "corrupted" | "encrypted" | "unsupported" | "generic";
+
+const xlsxFailureMessages: Record<XlsxFailure, string> = {
+  corrupted:
+    "This workbook is corrupted or incomplete. Export a new XLSX or CSV.",
+  encrypted:
+    "This workbook is encrypted or password-protected. Remove the password and upload it again, or export it as CSV.",
+  unsupported:
+    "This workbook uses an unsupported Excel format or feature. Export the transaction sheet as a plain XLSX or CSV.",
+  generic:
+    "We couldn’t parse this workbook reliably. Export a fresh XLSX or CSV and try again.",
+};
+
+function xlsxFailure(kind: XlsxFailure) {
+  return new ParseError(xlsxFailureMessages[kind]);
+}
+
+function hasBytes(buffer: ArrayBuffer, bytes: number[]) {
+  if (buffer.byteLength < bytes.length) return false;
+  const input = new Uint8Array(buffer, 0, bytes.length);
+  return bytes.every((byte, index) => input[index] === byte);
+}
+
+function containsUtf16Le(buffer: ArrayBuffer, value: string) {
+  const input = new Uint8Array(buffer);
+  outer: for (
+    let offset = 0;
+    offset <= input.length - value.length * 2;
+    offset++
+  ) {
+    for (let index = 0; index < value.length; index++) {
+      if (
+        input[offset + index * 2] !== value.charCodeAt(index) ||
+        input[offset + index * 2 + 1] !== 0
+      )
+        continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function classifyXlsxLoadFailure(error: unknown): XlsxFailure {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (/password|encrypt|decrypt/.test(message)) return "encrypted";
+  if (
+    /corrupt|crc|central directory|invalid zip|unexpected end|unclosed|invalid xml|xml parse/.test(
+      message,
+    )
+  )
+    return "corrupted";
+  if (
+    /unsupported|not supported|not implemented|unknown compression/.test(
+      message,
+    )
+  )
+    return "unsupported";
+  return "generic";
+}
+
 // Read the ZIP directory before ExcelJS inflates content, to cap expansion and reject macros.
 function validateXlsxZip(buffer: ArrayBuffer) {
+  const compoundFileHeader = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+  if (hasBytes(buffer, compoundFileHeader)) {
+    if (
+      containsUtf16Le(buffer, "EncryptedPackage") ||
+      containsUtf16Le(buffer, "EncryptionInfo")
+    )
+      throw xlsxFailure("encrypted");
+    throw xlsxFailure("unsupported");
+  }
   const view = new DataView(buffer);
   let pos = -1;
   for (
@@ -267,10 +337,7 @@ function validateXlsxZip(buffer: ArrayBuffer) {
       break;
     }
   }
-  if (pos < 0)
-    throw new ParseError(
-      "This Excel file is damaged. Export a new XLSX or CSV.",
-    );
+  if (pos < 0) throw xlsxFailure("corrupted");
   const count = view.getUint16(pos + 10, true);
   let off = view.getUint32(pos + 16, true),
     total = 0;
@@ -284,7 +351,7 @@ function validateXlsxZip(buffer: ArrayBuffer) {
       off + 46 > buffer.byteLength ||
       view.getUint32(off, true) !== 0x02014b50
     )
-      throw new ParseError("Invalid Excel archive.");
+      throw xlsxFailure("corrupted");
     const compressed = view.getUint32(off + 20, true),
       size = view.getUint32(off + 24, true),
       nameLen = view.getUint16(off + 28, true),
@@ -304,13 +371,75 @@ function validateXlsxZip(buffer: ArrayBuffer) {
     );
     if (name === "xl/workbook.xml") found = true;
     if (/vbaProject|externalLinks/i.test(name))
-      throw new ParseError(
-        "Macros and linked workbooks are not supported. Export a plain CSV.",
-      );
+      throw xlsxFailure("unsupported");
     off += 46 + nameLen + extra + comment;
   }
-  if (!found) throw new ParseError("This file is not an XLSX workbook.");
+  if (!found) throw xlsxFailure("unsupported");
 }
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function relativeOpcTarget(relationshipsPath: string, target: string) {
+  const match = relationshipsPath.match(/^(.*\/)?_rels\/([^/]+)\.rels$/);
+  const sourceDirectory = (match?.[1] || "").split("/").filter(Boolean);
+  const targetParts = target.split("/").filter(Boolean);
+  while (
+    sourceDirectory.length &&
+    targetParts.length &&
+    sourceDirectory[0] === targetParts[0]
+  ) {
+    sourceDirectory.shift();
+    targetParts.shift();
+  }
+  return `${"../".repeat(sourceDirectory.length)}${targetParts.join("/")}`;
+}
+
+// ExcelJS does not recognize valid SpreadsheetML elements with an explicit
+// namespace prefix and does not resolve every absolute OPC relationship target.
+// Convert both standard forms to the equivalent syntax ExcelJS expects.
+async function normalizeExcelJsCompatibleOoxml(buffer: ArrayBuffer) {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(new Uint8Array(buffer));
+  let changed = false;
+  const namespace =
+    /\sxmlns:([A-Za-z_][\w.-]*)=["']http:\/\/schemas\.openxmlformats\.org\/spreadsheetml\/2006\/main["']/g;
+
+  await Promise.all(
+    Object.values(zip.files).map(async (entry) => {
+      if (entry.dir || !/\.(?:xml|rels)$/i.test(entry.name)) return;
+      const xml = await entry.async("string");
+      const prefixes = [...xml.matchAll(namespace)].map((match) => match[1]);
+      let normalized = xml;
+      for (const prefix of prefixes) {
+        normalized = normalized.replace(
+          new RegExp(`(<\\/?)(?:${escapeRegExp(prefix)}):`, "g"),
+          "$1",
+        );
+      }
+      if (/\.rels$/i.test(entry.name)) {
+        normalized = normalized.replace(
+          /(\sTarget=["'])\/([^"']+)(["'])/g,
+          (_match, before: string, target: string, after: string) =>
+            `${before}${relativeOpcTarget(entry.name, target)}${after}`,
+        );
+      }
+      if (normalized !== xml) {
+        zip.file(entry.name, normalized);
+        changed = true;
+      }
+    }),
+  );
+
+  if (!changed) return undefined;
+  return zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+}
+
 export async function parseXlsx(
   buffer: ArrayBuffer,
   id: string,
@@ -318,16 +447,30 @@ export async function parseXlsx(
 ) {
   validateXlsxZip(buffer);
   const ExcelJS = (await import("exceljs")).default;
-  const workbook = new ExcelJS.Workbook();
-  try {
+  const load = async (data: ArrayBuffer | Uint8Array) => {
+    const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(
-      buffer as unknown as Parameters<typeof workbook.xlsx.load>[0],
+      data as unknown as Parameters<typeof workbook.xlsx.load>[0],
     );
-  } catch {
-    throw new ParseError(
-      "We couldn’t open this workbook. Remove any password or export it as CSV.",
-    );
+    return workbook;
+  };
+  let workbook;
+  let initialFailure: unknown;
+  try {
+    workbook = await load(buffer);
+  } catch (error) {
+    initialFailure = error;
   }
+  if (!workbook) {
+    try {
+      const normalized = await normalizeExcelJsCompatibleOoxml(buffer);
+      if (normalized) workbook = await load(normalized);
+    } catch (error) {
+      const normalizedFailure = classifyXlsxLoadFailure(error);
+      if (normalizedFailure !== "generic") throw xlsxFailure(normalizedFailure);
+    }
+  }
+  if (!workbook) throw xlsxFailure(classifyXlsxLoadFailure(initialFailure));
   const active = workbook.worksheets.filter((s) => s.actualRowCount > 1);
   if (active.length !== 1)
     throw new ParseError(
