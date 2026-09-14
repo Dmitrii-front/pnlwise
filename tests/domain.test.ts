@@ -298,6 +298,20 @@ test("reads signed PDF transaction rows; rejects scanned and broken PDFs", async
   const rows = await parsePdf(Uint8Array.from(bytes).buffer, "pdf");
   assert.equal(rows.length, 2);
   assert.equal(rows[1].amount, 2550);
+  const ambiguous = await PDFDocument.create(),
+    ambiguousPage = ambiguous.addPage(),
+    ambiguousFont = await ambiguous.embedFont(StandardFonts.Helvetica);
+  ambiguousPage.drawText("01/03/2026 Ambiguous amount 25.50", {
+    x: 40,
+    y: 700,
+    font: ambiguousFont,
+    size: 12,
+  });
+  await assert.rejects(
+    async () =>
+      parsePdf(Uint8Array.from(await ambiguous.save()).buffer, "unsigned-pdf"),
+    /unsigned PDF amounts are not supported/,
+  );
   const scanned = await PDFDocument.create();
   scanned.addPage();
   await assert.rejects(
@@ -311,6 +325,48 @@ test("reads signed PDF transaction rows; rejects scanned and broken PDFs", async
   await assert.rejects(
     async () => parsePdf(Uint8Array.from(await scanned.save()).buffer, "scan"),
     /couldn’t reliably/,
+  );
+});
+test("reads every transaction from a text PDF with Debit and Credit columns", async () => {
+  const bytes = await readFile(
+    resolve("tests/fixtures/03_March_Statement.pdf"),
+  );
+  const rows = await parsePdf(arrayBuffer(bytes), "march-pdf");
+  assert.deepEqual(
+    rows.map(({ date, rawDescription, amount, direction }) => ({
+      date,
+      rawDescription,
+      amount,
+      direction,
+    })),
+    [
+      ["03/02/2026", "STRIPE PAYOUT ST-0302", 1010000, "credit"],
+      ["03/04/2026", "ACH CREDIT CLIENT C INV-1134", 420000, "credit"],
+      ["03/05/2026", "HOME DEPOT #0412", 198000, "debit"],
+      ["03/06/2026", "ABC PLUMBING SUPPLY", 92000, "debit"],
+      ["03/07/2026", "MILLER HVAC LLC", 140000, "debit"],
+      ["03/09/2026", "GOOGLE ADS 991404", 80000, "debit"],
+      ["03/10/2026", "CANVA PRO", 1500, "debit"],
+      ["03/10/2026", "MICROSOFT 365", 2200, "debit"],
+      ["03/12/2026", "ACH OFFICE RENT MAR", 180000, "debit"],
+      ["03/15/2026", "GUSTO PAYROLL", 280000, "debit"],
+      ["03/16/2026", "CITY ELECTRIC UTILITY", 23000, "debit"],
+      ["03/17/2026", "STATE FARM BUSINESS", 21000, "debit"],
+      ["03/18/2026", "SHELL OIL 5743", 24000, "debit"],
+      ["03/19/2026", "THE LOCAL KITCHEN", 15500, "debit"],
+      ["03/20/2026", "STRIPE PROCESSING FEE", 30300, "debit"],
+      ["03/21/2026", "OWNER DRAW", 150000, "debit"],
+      ["03/22/2026", "APPLE STORE R042", 89900, "debit"],
+      ["03/23/2026", "TRANSFER TO BUSINESS SAVINGS 2711", 250000, "debit"],
+      ["03/24/2026", "PAYPAL *J SMITH", 95000, "debit"],
+      ["03/25/2026", "COUNTY BUSINESS LICENSE", 20000, "debit"],
+      ["03/27/2026", "HOME DEPOT RETURN", 18000, "credit"],
+    ].map(([date, rawDescription, amount, direction]) => ({
+      date: parseDate(date),
+      rawDescription,
+      amount,
+      direction,
+    })),
   );
 });
 test("Stripe signatures require exact payload and fresh timestamp", async () => {

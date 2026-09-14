@@ -490,6 +490,97 @@ export async function parseXlsx(
   });
   return parseRows(rows, id, mapping);
 }
+
+type PdfTextItem = { x: number; s: string };
+type PdfColumnKind = "date" | "description" | "debit" | "credit" | "balance";
+type PdfColumn = { kind: PdfColumnKind; x: number };
+
+const pdfHeaderAliases: Record<PdfColumnKind, string[]> = {
+  date: ["date", "transactiondate", "posteddate", "postingdate"],
+  description: [
+    "description",
+    "details",
+    "transactiondetails",
+    "memo",
+    "payee",
+  ],
+  debit: ["debit", "debits", "withdrawal", "withdrawals", "moneyout"],
+  credit: ["credit", "credits", "deposit", "deposits", "moneyin"],
+  balance: ["balance", "runningbalance"],
+};
+
+function pdfHeaderKind(value: string): PdfColumnKind | undefined {
+  const normalized = value.toLowerCase().replace(/[^a-z]/g, "");
+  return (Object.keys(pdfHeaderAliases) as PdfColumnKind[]).find((kind) =>
+    pdfHeaderAliases[kind].includes(normalized),
+  );
+}
+
+function detectPdfDebitCreditColumns(
+  items: PdfTextItem[],
+): PdfColumn[] | undefined {
+  const columns = items.flatMap((item) => {
+    const kind = pdfHeaderKind(item.s);
+    return kind ? [{ kind, x: item.x }] : [];
+  });
+  const unique = (kind: PdfColumnKind) =>
+    columns.filter((column) => column.kind === kind);
+  if (
+    unique("date").length !== 1 ||
+    unique("description").length !== 1 ||
+    unique("debit").length !== 1 ||
+    unique("credit").length !== 1
+  )
+    return undefined;
+  const ordered = [...columns].sort((a, b) => a.x - b.x);
+  if (
+    ordered[0].kind !== "date" ||
+    ordered[1].kind !== "description" ||
+    Math.abs(unique("debit")[0].x - unique("credit")[0].x) < 18
+  )
+    return undefined;
+  return ordered;
+}
+
+function nearestPdfColumn(columns: PdfColumn[], x: number) {
+  return columns.reduce((nearest, column) =>
+    Math.abs(column.x - x) < Math.abs(nearest.x - x) ? column : nearest,
+  );
+}
+
+function parsePdfDebitCreditRow(
+  items: PdfTextItem[],
+  columns: PdfColumn[],
+): [string, string, string] | undefined {
+  const date = items[0]?.s.trim();
+  if (!/^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})$/.test(date))
+    return undefined;
+  const money = items.flatMap((item, index) =>
+    /^\$?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}$/.test(item.s.trim())
+      ? [{ ...item, index, kind: nearestPdfColumn(columns, item.x).kind }]
+      : [],
+  );
+  const debits = money.filter((item) => item.kind === "debit");
+  const credits = money.filter((item) => item.kind === "credit");
+  if (debits.length + credits.length !== 1 || (debits.length && credits.length))
+    return undefined;
+  const transactionAmount = debits[0] || credits[0];
+  const firstFinancialCell = Math.min(
+    ...money
+      .filter((item) => ["debit", "credit", "balance"].includes(item.kind))
+      .map((item) => item.index),
+  );
+  if (!Number.isFinite(firstFinancialCell)) return undefined;
+  const description = items
+    .slice(1, firstFinancialCell)
+    .map((item) => item.s)
+    .join(" ")
+    .trim();
+  if (!description) return undefined;
+  const amount = transactionAmount.s.trim();
+  return [date, description, `${debits.length ? "-" : "+"}${amount}`];
+}
+
 export async function parsePdf(buffer: ArrayBuffer, id: string) {
   if (new TextDecoder().decode(new Uint8Array(buffer).slice(0, 5)) !== "%PDF-")
     throw new ParseError(
@@ -510,19 +601,25 @@ export async function parsePdf(buffer: ArrayBuffer, id: string) {
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
-      const lines = new Map<number, { x: number; s: string }[]>();
+      const lines = new Map<number, PdfTextItem[]>();
       for (const item of content.items) {
-        if (!("str" in item)) continue;
+        if (!("str" in item) || !item.str.trim()) continue;
         const y = Math.round(item.transform[5]);
         const entries = lines.get(y) || [];
         entries.push({ x: item.transform[4], s: item.str });
         lines.set(y, entries);
       }
+      let debitCreditColumns: PdfColumn[] | undefined;
       for (const [, items] of [...lines.entries()].sort(
         (a, b) => b[0] - a[0],
       )) {
-        const line = items
-          .sort((a, b) => a.x - b.x)
+        const orderedItems = items.sort((a, b) => a.x - b.x);
+        const detectedColumns = detectPdfDebitCreditColumns(orderedItems);
+        if (detectedColumns) {
+          debitCreditColumns = detectedColumns;
+          continue;
+        }
+        const line = orderedItems
           .map((i) => i.s)
           .join(" ")
           .trim();
@@ -532,6 +629,13 @@ export async function parsePdf(buffer: ArrayBuffer, id: string) {
             /^(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})\s+(.+?)\s+([+-]?\$?[\d,]+\.\d{2}\s?(?:CR|DR)|[+-]\$?[\d,]+\.\d{2}|\(\$?[\d,]+\.\d{2}\))$/i,
           );
           if (match) rows.push([match[1], match[2], match[3]]);
+          else if (debitCreditColumns) {
+            const row = parsePdfDebitCreditRow(
+              orderedItems,
+              debitCreditColumns,
+            );
+            if (row) rows.push(row);
+          }
         }
       }
     }
