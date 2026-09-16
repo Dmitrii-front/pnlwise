@@ -3,7 +3,7 @@ import { accountUser } from "./auth";
 import { config } from "./config";
 import { env } from "cloudflare:workers";
 import { cookies } from "next/headers";
-import type { Report } from "./domain";
+import { hasUnresolvedRefund, type Report } from "./domain";
 export class AppError extends Error {
   constructor(
     message: string,
@@ -76,11 +76,13 @@ export async function getReport(id: string) {
       "This report is unavailable in this browser or has expired. Start a new report.",
       404,
     );
-  return {
+  const report = {
     ...JSON.parse(row.data),
     revision: row.revision,
     paid: !!row.paid,
   } as Report;
+  if (hasUnresolvedRefund(report)) report.status = "review";
+  return report;
 }
 export async function saveReport(report: Report) {
   const owner = await session(true);

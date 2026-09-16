@@ -131,6 +131,14 @@ export function needsReview(t: Transaction) {
         !!t.duplicateOf))
   );
 }
+export function hasUnresolvedRefund(report: Report) {
+  return report.transactions.some(
+    (t) =>
+      t.categoryId === "refund" &&
+      t.date >= report.periodStart &&
+      t.date <= report.periodEnd,
+  );
+}
 export function setCategory(
   t: Transaction,
   id: string,

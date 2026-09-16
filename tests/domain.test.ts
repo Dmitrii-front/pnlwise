@@ -21,6 +21,7 @@ import {
   setCategory,
   sampleReport,
   needsReview,
+  hasUnresolvedRefund,
   percent,
   type Transaction,
 } from "../lib/domain";
@@ -122,6 +123,14 @@ test("refund placeholder always needs attribution before generation", () => {
   const previouslyConfirmed = { ...reversal, userConfirmed: true };
   assert.equal(needsReview(previouslyConfirmed), true);
   assert.equal([previouslyConfirmed].filter(needsReview).length, 1);
+  assert.equal(
+    hasUnresolvedRefund({
+      ...sampleReport(),
+      status: "ready",
+      transactions: [previouslyConfirmed],
+    }),
+    true,
+  );
 
   const excluded = setCategory(reversal, "excluded-reversal");
   assert.equal(needsReview(excluded), false);
