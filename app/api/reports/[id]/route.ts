@@ -1,5 +1,6 @@
-import { api, json, getReport, price, setting } from "@/lib/server";
+import { api, json, getReport, price } from "@/lib/server";
 import { calculatePnl, needsReview } from "@/lib/domain";
+import { stripeTestConfigured } from "@/lib/payments";
 export const GET = (
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -19,10 +20,6 @@ export const GET = (
           : null,
       reviewCount: report.transactions.filter(needsReview).length,
       priceCents: price(),
-      checkoutEnabled: !!(
-        setting("STRIPE_SECRET_KEY") &&
-        setting("STRIPE_WEBHOOK_SECRET") &&
-        setting("APP_ORIGIN")
-      ),
+      checkoutEnabled: stripeTestConfigured(),
     });
   });

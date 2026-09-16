@@ -1,5 +1,6 @@
 import { api, json, setting, AppError } from "@/lib/server";
-import { verifyStripeSignature, fulfill } from "@/lib/payments";
+import { fulfill } from "@/lib/payments";
+import { parseTestStripeEvent } from "@/lib/payment-core";
 export const POST = (req: Request) =>
   api(async () => {
     const secret = setting("STRIPE_WEBHOOK_SECRET");
@@ -7,27 +8,37 @@ export const POST = (req: Request) =>
     if (Number(req.headers.get("content-length")) > 100000)
       throw new AppError("Payload too large.", 413);
     const payload = await req.text();
+    if (payload.length > 100000)
+      throw new AppError("Payload too large.", 413);
+    const parsed = await parseTestStripeEvent(
+      payload,
+      req.headers.get("stripe-signature") || "",
+      secret,
+    );
+    if (!parsed.ok)
+      throw new AppError(
+        parsed.error === "live_mode"
+          ? "Live Stripe events are not accepted in Test Mode."
+          : parsed.error === "payload"
+            ? "Invalid event."
+            : "Invalid webhook signature.",
+        400,
+      );
+    const event = parsed.event as {
+      type?: string;
+      data?: { object?: Parameters<typeof fulfill>[0] };
+    };
     if (
-      payload.length > 100000 ||
-      !(await verifyStripeSignature(
-        payload,
-        req.headers.get("stripe-signature") || "",
-        secret,
-      ))
-    )
-      throw new AppError("Invalid webhook signature.", 400);
-    let event;
-    try {
-      event = JSON.parse(payload);
-    } catch {
-      throw new AppError("Invalid event.", 400);
-    }
-    if (
+      event.type &&
       [
         "checkout.session.completed",
         "checkout.session.async_payment_succeeded",
       ].includes(event.type)
-    )
-      await fulfill(event.data.object);
+    ) {
+      const session = event.data?.object;
+      if (!session || typeof session !== "object")
+        throw new AppError("Invalid event.", 400);
+      await fulfill(session);
+    }
     return json({ received: true });
   });

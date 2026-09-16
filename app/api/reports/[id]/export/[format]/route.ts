@@ -1,7 +1,7 @@
 import { api, getReport, AppError, track } from "@/lib/server";
 import { csvExport, pdfExport, xlsxExport } from "@/lib/export";
-import { needsReview } from "@/lib/domain";
 import { config } from "@/lib/config";
+import { exportAccess } from "@/lib/export-access";
 export const GET = (
   req: Request,
   { params }: { params: Promise<{ id: string; format: string }> },
@@ -9,21 +9,8 @@ export const GET = (
   api(async () => {
     const { id, format } = await params;
     const report = await getReport(id);
-    if (!report.paid)
-      throw new AppError("Complete payment to download this report.", 402);
-    if (
-      report.status !== "ready" ||
-      report.transactions.some(
-        (t) =>
-          t.date >= report.periodStart &&
-          t.date <= report.periodEnd &&
-          needsReview(t),
-      )
-    )
-      throw new AppError(
-        "Review your latest changes and generate the report again before downloading.",
-        409,
-      );
+    const access = exportAccess(report);
+    if (!access.allowed) throw new AppError(access.message, access.status);
     if (!["pdf", "xlsx", "csv"].includes(format))
       throw new AppError("Choose PDF, Excel, or CSV.", 404);
     const bytes =

@@ -59,6 +59,7 @@ Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `APP_ORIGIN` to the exact 
 Checkout amount and currency are server-controlled. Webhooks validate the raw-body HMAC, timestamp, stored session ID, report ID, payment ID, amount, currency, and paid status. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL is never accepted as proof of payment. No local/demo payment bypass exists in application routes.
 
 Use Stripe test mode and Stripe CLI to validate real Checkout and webhook delivery before enabling live payments. No live credentials or charges are needed for this preview.
+The current MVP runtime rejects live Stripe secret keys and signed events with `livemode: true`; enabling Live Mode requires an explicit code and configuration change after Test Mode QA.
 
 ### OpenAI categorization
 

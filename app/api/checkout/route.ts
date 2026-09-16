@@ -13,7 +13,8 @@ import {
   track,
 } from "@/lib/server";
 import { needsReview } from "@/lib/domain";
-import { stripe } from "@/lib/payments";
+import { stripe, stripeTestConfigured } from "@/lib/payments";
+import { buildCheckoutForm } from "@/lib/payment-core";
 export const POST = (req: Request) =>
   api(async () => {
     guardOrigin(req);
@@ -36,8 +37,7 @@ export const POST = (req: Request) =>
     const origin = setting("APP_ORIGIN");
     if (
       !origin ||
-      !setting("STRIPE_SECRET_KEY") ||
-      !setting("STRIPE_WEBHOOK_SECRET")
+      !stripeTestConfigured()
     )
       throw new AppError(
         "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
@@ -56,18 +56,12 @@ export const POST = (req: Request) =>
       )
       .bind(paymentId, report.id, amount, Date.now())
       .run();
-    const form = new URLSearchParams({
-      mode: "payment",
-      "payment_method_types[0]": "card",
-      "line_items[0][price_data][currency]": "usd",
-      "line_items[0][price_data][unit_amount]": String(amount),
-      "line_items[0][price_data][product_data][name]": `${config.name} Profit & Loss Report`,
-      "line_items[0][quantity]": "1",
-      success_url: `${origin}/checkout/success?report=${report.id}`,
-      cancel_url: `${origin}/checkout/cancel?report=${report.id}`,
-      "metadata[reportId]": report.id,
-      "metadata[paymentId]": paymentId,
-      client_reference_id: report.id,
+    const form = buildCheckoutForm({
+      reportId: report.id,
+      paymentId,
+      amount,
+      origin,
+      productName: `${config.name} Profit & Loss Report`,
     });
     const s = await stripe("checkout/sessions", {
       body: form,
