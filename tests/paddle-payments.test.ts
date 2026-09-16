@@ -21,6 +21,8 @@ import {
 } from "../lib/paddle-payment-core";
 
 const paymentId = "report-1:7:1299";
+const notificationSecret =
+  "pdl_ntfset_01m2n7d5jhp19ef6kx6tbsdm06_abcdEFGH/ijklMNOP+qrstUVWxyz";
 const basePayment: PaddlePaymentRecord = {
   id: paymentId,
   report_id: "report-1",
@@ -147,18 +149,30 @@ test("Sandbox configuration rejects Live credentials", () => {
   assert.equal(isPaddleSandboxApiKey("pdl_live_apikey_example"), false);
   assert.equal(isPaddleSandboxClientToken("test_example"), true);
   assert.equal(isPaddleSandboxClientToken("live_example"), false);
-  assert.equal(isPaddleNotificationSecret("pdl_ntfset_example"), true);
   assert.equal(isPaddleSandboxEnvironment(undefined), true);
   assert.equal(isPaddleSandboxEnvironment("sandbox"), true);
   assert.equal(isPaddleSandboxEnvironment("production"), false);
   assert.equal(isPaddleSandboxEnvironment("live"), false);
 });
 
+test("notification secret validation accepts opaque Paddle signing material", () => {
+  assert.equal(isPaddleNotificationSecret(notificationSecret), true);
+  assert.equal(isPaddleNotificationSecret(undefined), false);
+  assert.equal(isPaddleNotificationSecret(""), false);
+  assert.equal(isPaddleNotificationSecret("pdl_ntfset_"), false);
+  assert.equal(isPaddleNotificationSecret("pdl_ntfset_too-short"), false);
+  assert.equal(
+    isPaddleNotificationSecret(
+      "pdl_ntfset_01m2n7d5jhp19ef6kx6tbsdm06_invalid value",
+    ),
+    false,
+  );
+});
+
 test("official Paddle verifier rejects invalid signatures", async () => {
   const paddle = new Paddle("pdl_sdbx_apikey_test", {
     environment: Environment.sandbox,
   });
-  const secret = "pdl_ntfset_test_secret";
   const payload = JSON.stringify({
     event_id: "evt_test",
     event_type: "test.event",
@@ -169,17 +183,52 @@ test("official Paddle verifier rejects invalid signatures", async () => {
     unmarshalPaddleWebhook(
       payload,
       `ts=${Math.floor(Date.now() / 1000)};h1=${"0".repeat(64)}`,
-      secret,
+      notificationSecret,
       paddle.webhooks,
     ),
   );
+});
+
+test("valid Paddle signature reaches business validation", async () => {
+  const paddle = new Paddle("pdl_sdbx_apikey_test", {
+    environment: Environment.sandbox,
+  });
+  const payload = JSON.stringify({
+    event_id: "evt_signed_unregistered",
+    event_type: "transaction.completed",
+    occurred_at: new Date().toISOString(),
+    notification_id: "ntf_signed_unregistered",
+    data: {
+      id: "txn_signed_unregistered",
+      status: "completed",
+      currency_code: PADDLE_CURRENCY,
+      subscription_id: null,
+      custom_data: null,
+      items: [],
+      details: null,
+      payments: [],
+    },
+  });
   const valid = await unmarshalPaddleWebhook(
     payload,
-    await paddleSignature(payload, secret, Math.floor(Date.now() / 1000)),
-    secret,
+    await paddleSignature(
+      payload,
+      notificationSecret,
+      Math.floor(Date.now() / 1000),
+    ),
+    notificationSecret,
     paddle.webhooks,
   );
-  assert.equal(valid.eventId, "evt_test");
+  assert.equal(valid.eventId, "evt_signed_unregistered");
+  assert.equal(valid.eventType, "transaction.completed");
+  assert.deepEqual(
+    await fulfillPaddlePayment(
+      valid.data as unknown as PaddleTransactionForFulfillment,
+      valid.eventId,
+      new MemoryPaddlePaymentStore(),
+    ),
+    { status: "error", error: "not_registered" },
+  );
 });
 
 test("valid completed Paddle payment unlocks exactly once", async () => {
@@ -203,10 +252,20 @@ test("wrong report, price, product, quantity, amount, or currency never unlocks"
       customData: { reportId: "report-1", paymentId: "payment-wrong" },
     }),
     completedTransaction({
-      items: [{ ...base.items[0], price: { ...base.items[0].price!, id: "pri_wrong" } }],
+      items: [
+        {
+          ...base.items[0],
+          price: { ...base.items[0].price!, id: "pri_wrong" },
+        },
+      ],
     }),
     completedTransaction({
-      items: [{ ...base.items[0], price: { ...base.items[0].price!, productId: "pro_wrong" } }],
+      items: [
+        {
+          ...base.items[0],
+          price: { ...base.items[0].price!, productId: "pro_wrong" },
+        },
+      ],
     }),
     completedTransaction({ items: [{ ...base.items[0], quantity: 2 }] }),
     completedTransaction({
@@ -274,11 +333,13 @@ test("incomplete, failed, or canceled payments never unlock", async () => {
 test("sequential duplicate Paddle webhooks have no repeated side effects", async () => {
   const store = new MemoryPaddlePaymentStore();
   assert.equal(
-    (await fulfillPaddlePayment(completedTransaction(), "evt_same", store)).status,
+    (await fulfillPaddlePayment(completedTransaction(), "evt_same", store))
+      .status,
     "fulfilled",
   );
   assert.equal(
-    (await fulfillPaddlePayment(completedTransaction(), "evt_same", store)).status,
+    (await fulfillPaddlePayment(completedTransaction(), "evt_same", store))
+      .status,
     "duplicate",
   );
   assert.equal(store.transitionCount, 1);
@@ -291,10 +352,10 @@ test("concurrent duplicate Paddle webhooks atomically fulfill only once", async 
     fulfillPaddlePayment(completedTransaction(), "evt_same", store),
     fulfillPaddlePayment(completedTransaction(), "evt_same", store),
   ]);
-  assert.deepEqual(
-    results.map((result) => result.status).sort(),
-    ["duplicate", "fulfilled"],
-  );
+  assert.deepEqual(results.map((result) => result.status).sort(), [
+    "duplicate",
+    "fulfilled",
+  ]);
   assert.equal(store.transitionCount, 1);
   assert.equal(store.paymentCompletedEvents.size, 1);
 });

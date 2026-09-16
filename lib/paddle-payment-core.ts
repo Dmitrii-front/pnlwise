@@ -74,7 +74,9 @@ export function isPaddleSandboxEnvironment(environment: string | undefined) {
 }
 
 export function isPaddleNotificationSecret(secret: string | undefined) {
-  return !!secret && /^pdl_ntfset_[A-Za-z0-9_-]+$/.test(secret);
+  if (!secret?.startsWith("pdl_ntfset_")) return false;
+  const value = secret.slice("pdl_ntfset_".length);
+  return value.length >= 32 && !/\s|[\u0000-\u001f\u007f]/.test(value);
 }
 
 export function paddleTransactionInput(reportId: string, paymentId: string) {
