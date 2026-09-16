@@ -55,9 +55,9 @@ export default function Page() {
           </p>
         </section>
         <section>
-          <h2>Stripe handles payment details</h2>
+          <h2>Paddle handles payment details</h2>
           <p>
-            Card details are entered on Stripe’s hosted checkout. A verified,
+            Card details are entered in Paddle Checkout. A verified,
             signed payment webhook is required before exports unlock. A browser
             redirect or a payment-success URL cannot grant access.
           </p>

@@ -1,6 +1,6 @@
 import { api, json, getReport, price } from "@/lib/server";
 import { calculatePnl, needsReview } from "@/lib/domain";
-import { stripeTestConfigured } from "@/lib/payments";
+import { paddleSandboxConfigured } from "@/lib/paddle";
 export const GET = (
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -20,6 +20,6 @@ export const GET = (
           : null,
       reviewCount: report.transactions.filter(needsReview).length,
       priceCents: price(),
-      checkoutEnabled: stripeTestConfigured(),
+      checkoutEnabled: paddleSandboxConfigured(),
     });
   });

@@ -1,6 +1,7 @@
 "use client";
 import { readResponse } from "@/lib/api-client";
 import { config } from "@/lib/config";
+import { initializePaddle, type Paddle } from "@paddle/paddle-js";
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -37,6 +38,18 @@ import { AccountPrompt } from "./account";
 import { DeleteData } from "./session";
 import { disclaimer } from "./shared";
 type Pnl = ReturnType<typeof calculatePnl>;
+let paddlePromise: Promise<Paddle | undefined> | undefined;
+function getPaddleSandbox() {
+  const token = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN;
+  const environment = process.env.NEXT_PUBLIC_PADDLE_ENV;
+  if (
+    !token?.startsWith("test_") ||
+    (environment !== undefined && environment !== "sandbox")
+  )
+    throw new Error("Paddle Sandbox checkout is not configured.");
+  paddlePromise ??= initializePaddle({ token, environment: "sandbox" });
+  return paddlePromise;
+}
 export default function ReportView({
   id,
   success = false,
@@ -111,7 +124,23 @@ export default function ReportView({
       });
       const d = await readResponse(res);
       if (!res.ok) throw Error(d.error);
-      window.location.assign(d.url);
+      if (d.url) {
+        window.location.assign(d.url);
+        return;
+      }
+      const paddle = await getPaddleSandbox();
+      if (!paddle) throw Error("Paddle Sandbox checkout is unavailable.");
+      paddle.Checkout.open({
+        transactionId: d.transactionId,
+        settings: {
+          displayMode: "overlay",
+          variant: "one-page",
+          showAddDiscounts: false,
+          successUrl: d.successUrl,
+        },
+      });
+      setCheckout(false);
+      setBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please retry.");
       setBusy(false);
@@ -278,7 +307,7 @@ export default function ReportView({
       {success && !report.paid && (
         <p className="info-box" role="status">
           {waiting
-            ? "Waiting for payment confirmation. Your downloads will unlock after Stripe verifies the payment."
+            ? "Waiting for payment confirmation. Your downloads will unlock after Paddle verifies the payment."
             : "Payment confirmation has not arrived yet. Your report is saved."}{" "}
           <button className="underline" onClick={() => void refresh()}>
             Check again
@@ -498,7 +527,7 @@ export default function ReportView({
                   Download my P&L <ArrowRight size={16} />
                 </Button>
                 <small className="download-footnote">
-                  <LockKeyhole size={12} /> Secure payment with Stripe
+                  <LockKeyhole size={12} /> Secure payment with Paddle
                 </small>
               </>
             )}
@@ -536,7 +565,7 @@ export default function ReportView({
             <DialogTitle>Your P&L, ready to download.</DialogTitle>
             <DialogDescription>
               One payment of {money(price)} unlocks your PDF statement, Excel
-              workbook, and transaction report. You’ll continue to Stripe for
+              workbook, and transaction report. Paddle Sandbox will handle the
               secure checkout.
             </DialogDescription>
           </DialogHeader>

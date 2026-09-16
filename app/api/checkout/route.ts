@@ -1,4 +1,3 @@
-import { config } from "@/lib/config";
 import {
   api,
   body,
@@ -13,8 +12,11 @@ import {
   track,
 } from "@/lib/server";
 import { needsReview } from "@/lib/domain";
-import { stripe, stripeTestConfigured } from "@/lib/payments";
-import { buildCheckoutForm } from "@/lib/payment-core";
+import {
+  createPaddleCheckout,
+  paddleSandboxConfigured,
+} from "@/lib/paddle";
+import { PADDLE_PRICE_AMOUNT } from "@/lib/paddle-payment-core";
 export const POST = (req: Request) =>
   api(async () => {
     guardOrigin(req);
@@ -37,7 +39,7 @@ export const POST = (req: Request) =>
     const origin = setting("APP_ORIGIN");
     if (
       !origin ||
-      !stripeTestConfigured()
+      !paddleSandboxConfigured()
     )
       throw new AppError(
         "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
@@ -49,6 +51,8 @@ export const POST = (req: Request) =>
     )
       throw new AppError("Checkout is not configured correctly.", 503);
     const amount = price();
+    if (amount !== PADDLE_PRICE_AMOUNT)
+      throw new AppError("Checkout is not configured correctly.", 503);
     const paymentId = `${report.id}:${report.revision}:${amount}`;
     await db()
       .prepare(
@@ -56,26 +60,45 @@ export const POST = (req: Request) =>
       )
       .bind(paymentId, report.id, amount, Date.now())
       .run();
-    const form = buildCheckoutForm({
-      reportId: report.id,
-      paymentId,
-      amount,
-      origin,
-      productName: `${config.name} Profit & Loss Report`,
-    });
-    const s = await stripe("checkout/sessions", {
-      body: form,
-      idempotencyKey: `clearledger:${paymentId}`,
-    });
-    if (s.status === "expired")
+    const existing = await db()
+      .prepare(
+        "SELECT paddle_transaction_id FROM payments WHERE id=? AND status='pending'",
+      )
+      .bind(paymentId)
+      .first<{ paddle_transaction_id: string | null }>();
+    let transactionId = existing?.paddle_transaction_id;
+    if (!transactionId) {
+      const transaction = await createPaddleCheckout(
+        report.id,
+        paymentId,
+        origin,
+      );
+      const claimed = await db()
+        .prepare(
+          "UPDATE payments SET paddle_transaction_id=? WHERE id=? AND status='pending' AND paddle_transaction_id IS NULL",
+        )
+        .bind(transaction.id, paymentId)
+        .run();
+      if (claimed.meta.changes) transactionId = transaction.id;
+      else {
+        transactionId = (
+          await db()
+            .prepare(
+              "SELECT paddle_transaction_id FROM payments WHERE id=? AND status='pending'",
+            )
+            .bind(paymentId)
+            .first<{ paddle_transaction_id: string | null }>()
+        )?.paddle_transaction_id;
+      }
+    }
+    if (!transactionId)
       throw new AppError(
-        "This checkout expired. Return to Review, generate the report again, and retry.",
+        "Checkout could not be started. Refresh the report and try again.",
         409,
       );
-    await db()
-      .prepare("UPDATE payments SET stripe_session_id=? WHERE id=?")
-      .bind(s.id, paymentId)
-      .run();
     await track("checkout_started");
-    return json({ url: s.url });
+    return json({
+      transactionId,
+      successUrl: `${origin}/checkout/success?report=${encodeURIComponent(report.id)}`,
+    });
   });

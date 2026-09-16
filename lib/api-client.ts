@@ -6,6 +6,8 @@ export interface ApiResponse {
   checkoutEnabled: boolean;
   error: string;
   url: string;
+  transactionId: string;
+  successUrl: string;
   details?: { headers?: string[] };
   deleted?: boolean;
 }

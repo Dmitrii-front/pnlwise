@@ -23,6 +23,8 @@ export const payments = sqliteTable(
     reportId: text("report_id").notNull(),
     stripeSessionId: text("stripe_session_id").unique(),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
+    paddleTransactionId: text("paddle_transaction_id").unique(),
+    paddleEventId: text("paddle_event_id").unique(),
     amount: integer("amount").notNull(),
     currency: text("currency").notNull(),
     status: text("status").notNull(),

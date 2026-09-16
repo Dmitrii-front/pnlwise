@@ -1,6 +1,6 @@
 # Clearledger
 
-Bank statements → review → deterministic P&L preview → one-time Stripe payment → PDF, XLSX, and CSV.
+Bank statements → review → deterministic P&L preview → one-time Paddle Sandbox payment → PDF, XLSX, and CSV.
 
 ## Run locally
 
@@ -52,14 +52,17 @@ Working values: **Clearledger**, operator **Clearledger**, **support@example.inv
 
 ## Integrations (off until configured)
 
-### Stripe
+### Paddle Sandbox
 
-Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `APP_ORIGIN` to the exact trusted HTTPS origin. Set up `/api/stripe/webhook` for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. The public production origin must permit external webhook delivery; owner-private preview access is not a public webhook endpoint.
+Set `PADDLE_API_KEY`, `PADDLE_NOTIFICATION_WEBHOOK_SECRET`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, and `APP_ORIGIN`. The API key must start with `pdl_sdbx_apikey_`, the client token with `test_`, and the Paddle SDK is hard-coded to Sandbox. Optional `PADDLE_ENVIRONMENT` and `NEXT_PUBLIC_PADDLE_ENV` values may only be `sandbox`. Live credentials and environment values fail closed. Configure a Sandbox notification destination for `${APP_ORIGIN}/api/paddle/webhook` subscribed to `transaction.completed`. The public origin must permit external webhook delivery; owner-private preview access is not a public webhook endpoint.
 
-Checkout amount and currency are server-controlled. Webhooks validate the raw-body HMAC, timestamp, stored session ID, report ID, payment ID, amount, currency, and paid status. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL is never accepted as proof of payment. No local/demo payment bypass exists in application routes.
+Checkout creates a server-side transaction for the fixed Sandbox price and passes only its transaction ID to Paddle.js. The catalog price restricts quantity to exactly one. Webhooks use the official Paddle SDK against the raw request body, then validate `transaction.completed`, a captured payment attempt, stored transaction ID, report ID, payment ID, product, price, one-time billing shape, quantity, amount, currency, and zero discount. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL or client event is never accepted as proof of payment.
 
-Use Stripe test mode and Stripe CLI to validate real Checkout and webhook delivery before enabling live payments. No live credentials or charges are needed for this preview.
-The current MVP runtime rejects live Stripe secret keys and signed events with `livemode: true`; enabling Live Mode requires an explicit code and configuration change after Test Mode QA.
+Set the Sandbox default payment link to `${APP_ORIGIN}/checkout`, then validate checkout and webhook delivery using Paddle Sandbox test cards and the Sandbox notification destination. No live credentials or charges are used.
+
+### Legacy Stripe rollback path
+
+The prior Stripe Test Mode implementation and `/api/stripe/webhook` remain in the codebase for rollback until Paddle Sandbox E2E is complete. It is not reachable from the active checkout UI or checkout API.
 
 ### OpenAI categorization
 
@@ -96,7 +99,7 @@ Configure production alerting against Worker errors/event counts before launch. 
 
 1. Verify the service name/domain/support mailbox; review legal terms for the operator and jurisdiction.
 2. Choose public production hosting/access and update the central canonical origin. Private preview publication does not expose anonymous public access or SEO indexing.
-3. Configure and test Stripe test mode → webhook delivery → paid downloads → live mode.
+3. Configure and test Paddle Sandbox checkout → `transaction.completed` webhook delivery → paid downloads. Live Paddle remains disabled.
 4. Configure optional OpenAI and Supabase Auth; test real providers before describing them as live.
 5. Schedule retention cleanup and error alerts; perform real-bank parsing QA and a security review.
 6. Register Google Search Console and Bing Webmaster Tools after public deployment.
@@ -105,8 +108,8 @@ The preview is a runnable implementation, not a claim of commercial launch readi
 
 ## Primary implementation references
 
-- [Stripe Checkout fulfillment](https://docs.stripe.com/checkout/fulfillment)
-- [Stripe webhook signatures](https://docs.stripe.com/webhooks)
+- [Paddle Checkout](https://developer.paddle.com/build/checkout/build-overlay-checkout)
+- [Paddle webhook signatures](https://developer.paddle.com/webhooks/signature-verification)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [Supabase server-side auth](https://supabase.com/docs/guides/auth/server-side/creating-a-client)
 - [unpdf](https://github.com/unjs/unpdf)

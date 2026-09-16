@@ -8,6 +8,13 @@
       "when": 1789321286719,
       "tag": "0000_kind_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789560606331,
+      "tag": "0001_low_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

@@ -42,7 +42,7 @@ export default function Page() {
             context to suggest categories. If you opt into account creation,
             Supabase Auth handles email magic links or Google sign-in. The
             verified account ID links your reports across browser sessions.
-            Source documents are not sent to the categorization service. Stripe
+            Source documents are not sent to the categorization service. Paddle
             processes checkout and card details.
           </p>
         </section>
@@ -77,7 +77,7 @@ export default function Page() {
             You can stop before payment, change categories, and delete your
             session’s report data. Deletion removes statements, transactions,
             and reports associated with the session, including paid reports. It
-            does not erase the separate Stripe payment record. Download any
+            does not erase the separate payment provider record. Download any
             files you want to retain before deleting.
           </p>
           <DeleteData />
@@ -86,7 +86,7 @@ export default function Page() {
           <h2>Service providers</h2>
           <p>
             The hosted application and database run on Cloudflare infrastructure
-            through Sites. Stripe handles payments. OpenAI is used only when AI
+            through Sites. Paddle handles payments. OpenAI is used only when AI
             categorization is configured. Providers process information under
             their own terms and applicable data-processing arrangements. This
             service does not sell uploaded statements or use them for
