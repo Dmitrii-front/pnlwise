@@ -102,9 +102,7 @@ export function Footer() {
           </div>
           <nav aria-label="Resources">
             <a href="/bank-statement-to-pnl">Bank statement to P&L</a>
-            <a href="/profit-and-loss-for-self-employed">
-              For self-employed
-            </a>
+            <a href="/profit-and-loss-for-self-employed">For self-employed</a>
             <a href="/profit-and-loss-for-contractors">For contractors</a>
             <a href="/profit-and-loss-for-small-business">
               For small businesses
@@ -112,11 +110,10 @@ export function Footer() {
             <a href="/profit-and-loss-for-1099">For 1099 workers</a>
           </nav>
           <nav aria-label="Company">
-            <a href="/guides/what-is-a-profit-and-loss-statement">
-              P&L guide
-            </a>
+            <a href="/guides/what-is-a-profit-and-loss-statement">P&L guide</a>
             <a href="/security">Security</a>
             <a href="/privacy">Privacy</a>
+            <a href="/refund-policy">Refund Policy</a>
             <a href="/terms">Terms</a>
             <a href="/sign-in">Sign in</a>
           </nav>

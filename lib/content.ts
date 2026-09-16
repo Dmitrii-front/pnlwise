@@ -285,5 +285,6 @@ export const publicRoutes = [
   "/security",
   "/faq",
   "/privacy",
+  "/refund-policy",
   "/terms",
 ];

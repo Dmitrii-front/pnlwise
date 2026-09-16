@@ -14,7 +14,7 @@ export default function Page() {
       <main id="main" className="wrap legal-page">
         <span className="eyebrow">TERMS</span>
         <h1>Terms of Service</h1>
-        <p className="legal-date">Last updated September 13, 2026</p>
+        <p className="legal-date">Last updated September 16, 2026</p>
         {!contact && (
           <p className="info-box">
             These terms describe the preview service. Operator, support, and
@@ -61,13 +61,13 @@ export default function Page() {
           </p>
         </section>
         <section>
-          <h2>Corrections and support</h2>
+          <h2>Corrections, refunds, and support</h2>
           <p>
             You can edit categories and regenerate the same report while it
-            remains available. If you have a duplicate charge, cannot access a
-            paid download, or believe a payment was made in error, contact
-            support with your payment reference. Rights that apply under law are
-            not waived by these terms.
+            remains available. Refund eligibility, payment errors, duplicate
+            charges, and delivery problems are covered by our{" "}
+            <a href="/refund-policy">Refund Policy</a>. Rights that apply under
+            law are not waived by these terms.
           </p>
         </section>
         <section>
