@@ -37,7 +37,13 @@ export const categories = [
   ],
   ["owner-draw", "Owner Draw", "excluded", "owner_draw"],
   ["personal", "Personal", "excluded", "personal"],
-  ["refund", "Refund / Reversal — review", "excluded", "refund"],
+  ["refund", "Refund / Reversal — choose category", "excluded", "refund"],
+  [
+    "excluded-reversal",
+    "Excluded Refund / Reversal",
+    "excluded",
+    "excluded_reversal",
+  ],
   ["duplicate", "Duplicate", "excluded", "unknown"],
   ["unknown", "Uncategorized — review", "excluded", "unknown"],
 ].map(([id, label, group, type]) => ({
@@ -118,11 +124,11 @@ export interface Report {
 }
 export function needsReview(t: Transaction) {
   return (
-    !t.userConfirmed &&
-    (t.confidence < confidenceThresholds.high ||
-      t.categoryId === "unknown" ||
-      t.categoryId === "refund" ||
-      !!t.duplicateOf)
+    t.categoryId === "refund" ||
+    (!t.userConfirmed &&
+      (t.confidence < confidenceThresholds.high ||
+        t.categoryId === "unknown" ||
+        !!t.duplicateOf))
   );
 }
 export function setCategory(
@@ -132,6 +138,10 @@ export function setCategory(
 ): Transaction {
   const c = categoryById[id];
   if (!c) throw Error("Choose a valid category.");
+  if (id === "refund" && confirmed)
+    throw Error(
+      "Choose the original income or expense category, or explicitly exclude this reversal.",
+    );
   return {
     ...t,
     categoryId: id,

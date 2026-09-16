@@ -21,6 +21,7 @@ import {
   setCategory,
   sampleReport,
   needsReview,
+  percent,
   type Transaction,
 } from "../lib/domain";
 import { pdfExport, xlsxExport, csvExport } from "../lib/export";
@@ -110,14 +111,55 @@ test("credit expense refunds and debit revenue refunds offset original categorie
   assert.equal(result.opex, 4000);
   assert.equal(result.netProfit, 4000);
 });
-test("confirmed refund or reversal exclusions no longer need review", () => {
-  const reversal = setCategory(
-    classify(tx("Reversal monthly service fee", "30")),
-    "refund",
+test("refund placeholder always needs attribution before generation", () => {
+  const reversal = classify(tx("Reversal monthly service fee", "30"));
+  assert.equal(reversal.categoryId, "refund");
+  assert.equal(needsReview(reversal), true);
+  assert.throws(
+    () => setCategory(reversal, "refund"),
+    /original income or expense category/,
   );
-  assert.equal(needsReview(reversal), false);
-  assert.equal(pnl([reversal]).excludedCount, 1);
-  assert.equal(pnl([reversal]).netProfit, 0);
+  const previouslyConfirmed = { ...reversal, userConfirmed: true };
+  assert.equal(needsReview(previouslyConfirmed), true);
+  assert.equal([previouslyConfirmed].filter(needsReview).length, 1);
+
+  const excluded = setCategory(reversal, "excluded-reversal");
+  assert.equal(needsReview(excluded), false);
+  assert.equal(pnl([excluded]).excludedCount, 1);
+  assert.equal(pnl([excluded]).netProfit, 0);
+});
+
+test("QA Pack #2 attributes refunds without description heuristics", () => {
+  const duplicate = {
+    ...setCategory(tx("Duplicate sale", "100", "2026-06-15"), "sales"),
+    isDuplicate: true,
+  };
+  const result = pnl([
+    setCategory(tx("Client revenue", "41900", "2026-06-01"), "sales"),
+    setCategory(tx("CLIENT REFUND", "-450", "2026-06-30"), "sales"),
+    setCategory(tx("Direct costs", "-4375", "2026-06-10"), "materials"),
+    setCategory(tx("Operating expenses", "-18126", "2026-06-20"), "office"),
+    setCategory(
+      tx("BANK FEE REVERSAL", "25", "2026-06-27"),
+      "excluded-reversal",
+    ),
+    setCategory(tx("Transfer", "1000"), "transfer"),
+    setCategory(tx("Owner contribution", "1000"), "owner-contribution"),
+    setCategory(tx("Owner draw", "-1000"), "owner-draw"),
+    setCategory(tx("Loan proceeds", "1000"), "loan-proceeds"),
+    setCategory(tx("Loan principal", "-1000"), "loan-principal"),
+    setCategory(tx("Personal", "-1000"), "personal"),
+    duplicate,
+  ]);
+  assert.equal(result.revenue, 4145000);
+  assert.equal(result.cogs, 437500);
+  assert.equal(result.grossProfit, 3707500);
+  assert.equal(percent(result.grossMargin), "89.4%");
+  assert.equal(result.opex, 1812600);
+  assert.equal(result.operatingProfit, 1894900);
+  assert.equal(result.netProfit, 1894900);
+  assert.equal(percent(result.netMargin), "45.7%");
+  assert.equal(result.excludedCount, 8);
 });
 test("loan proceeds, principal, owners and transfers excluded; no invented interest", () => {
   const ts = [
@@ -195,7 +237,12 @@ test("exports share exact deterministic sample totals and safe CSV strings", asy
   const report = sampleReport(),
     result = pnl(report.transactions);
   assert.equal(result.revenue, 4825000);
+  assert.equal(result.cogs, 640000);
+  assert.equal(result.grossProfit, 4185000);
+  assert.equal(result.opex, 1268000);
   assert.equal(result.netProfit, 2917000);
+  assert.equal(percent(result.grossMargin), "86.7%");
+  assert.equal(percent(result.netMargin), "60.5%");
   const pdf = await pdfExport(report);
   assert.equal(new TextDecoder().decode(pdf.slice(0, 5)), "%PDF-");
   const bytes = await xlsxExport(report);

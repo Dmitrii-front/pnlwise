@@ -41,6 +41,17 @@ import {
 } from "@/lib/domain";
 import { FlowSteps } from "./upload";
 import { DeleteData } from "./session";
+
+function reviewStatus(t: Transaction) {
+  if (t.categoryId === "refund") return { label: "Review", level: "low" };
+  if (t.userConfirmed) return { label: "Confirmed", level: "confirmed" };
+  if (t.confidence >= confidenceThresholds.high)
+    return { label: "High", level: "high" };
+  if (t.confidence >= confidenceThresholds.review)
+    return { label: "Medium", level: "medium" };
+  return { label: "Review", level: "low" };
+}
+
 export function CategoryPicker({
   value,
   onChange,
@@ -70,7 +81,11 @@ export function CategoryPicker({
             {categories
               .filter((c) => c.group === group)
               .map((c) => (
-                <SelectItem key={c.id} value={c.id}>
+                <SelectItem
+                  key={c.id}
+                  value={c.id}
+                  disabled={c.id === "refund"}
+                >
                   {c.label}
                 </SelectItem>
               ))}
@@ -456,16 +471,8 @@ export default function Review({ id }: { id: string }) {
                     />
                   </td>
                   <td>
-                    <span
-                      className={`confidence ${t.userConfirmed ? "confirmed" : t.confidence >= confidenceThresholds.high ? "high" : t.confidence >= confidenceThresholds.review ? "medium" : "low"}`}
-                    >
-                      {t.userConfirmed
-                        ? "Confirmed"
-                        : t.confidence >= confidenceThresholds.high
-                          ? "High"
-                          : t.confidence >= confidenceThresholds.review
-                            ? "Medium"
-                            : "Review"}
+                    <span className={`confidence ${reviewStatus(t).level}`}>
+                      {reviewStatus(t).label}
                     </span>
                     <details className="reason">
                       <summary>Why?</summary>
@@ -474,7 +481,11 @@ export default function Review({ id }: { id: string }) {
                   </td>
                   <td>
                     <div className="transaction-actions">
-                      {t.userConfirmed ? (
+                      {t.categoryId === "refund" ? (
+                        <span className="text-muted-foreground text-sm">
+                          Choose category
+                        </span>
+                      ) : t.userConfirmed ? (
                         <Check
                           size={17}
                           aria-label="Confirmed"
