@@ -1,4 +1,10 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 export const reports = sqliteTable(
   "reports",
   {
@@ -25,12 +31,18 @@ export const payments = sqliteTable(
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     paddleTransactionId: text("paddle_transaction_id").unique(),
     paddleEventId: text("paddle_event_id").unique(),
+    purchaseKey: text("purchase_key"),
+    failureReason: text("failure_reason"),
+    checkoutClaimedAt: integer("checkout_claimed_at"),
     amount: integer("amount").notNull(),
     currency: text("currency").notNull(),
     status: text("status").notNull(),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [index("idx_payments_report").on(t.reportId)],
+  (t) => [
+    index("idx_payments_report").on(t.reportId),
+    uniqueIndex("idx_payments_purchase_key").on(t.purchaseKey),
+  ],
 );
 export const events = sqliteTable("events", {
   id: text("id").primaryKey(),

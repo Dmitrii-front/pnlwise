@@ -247,7 +247,7 @@ export default function Home() {
               <span className="tag">One-time payment</span>
             </div>
             <div className="price">
-              {money(price())} <span>/ report</span>
+              {money(price())} <span>one-time + applicable tax</span>
             </div>
             <p>No subscription. No hidden monthly fees.</p>
             <ul>

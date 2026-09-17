@@ -27,9 +27,10 @@ export default function Page() {
           <h2>One-time digital purchase</h2>
           <p>
             {config.name} sells a one-time digital Profit &amp; Loss report for{" "}
-            {price}. There is no subscription or recurring billing. The report
-            is generated from the bank statements you upload, and the purchase
-            unlocks its PDF, Excel, and CSV exports.
+            a base price of {price}, plus applicable tax. There is no
+            subscription or recurring billing. The report is generated from the
+            bank statements you upload, and the purchase unlocks its PDF, Excel,
+            and CSV exports.
           </p>
         </section>
         <section>

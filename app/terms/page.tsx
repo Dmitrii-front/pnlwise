@@ -53,11 +53,12 @@ export default function Page() {
         <section>
           <h2>Preview, purchase, and access</h2>
           <p>
-            Report previews are free. The price shown at checkout is a one-time
-            payment for the downloadable versions of that report. There is no
-            recurring subscription. Downloads unlock after payment verification.
-            Keep your downloaded files; clearing your session cookie or deleting
-            report data may remove your access.
+            Report previews are free. The base price shown is a one-time payment
+            for the downloadable versions of that report. Paddle may add
+            applicable tax at checkout. There is no recurring subscription.
+            Downloads unlock after payment verification. Keep your downloaded
+            files; clearing your session cookie or deleting report data may
+            remove your access.
           </p>
         </section>
         <section>

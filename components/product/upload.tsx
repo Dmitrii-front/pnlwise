@@ -438,7 +438,8 @@ export default function UploadForm() {
           <div className="aside-price">
             <strong>Free to preview.</strong>
             <p>
-              {money(config.priceCents)} to download your report.
+              {money(config.priceCents)} + applicable tax to download your
+              report.
               <br />
               One payment. No subscription.
             </p>

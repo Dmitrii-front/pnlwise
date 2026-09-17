@@ -27,7 +27,7 @@ export default function Page() {
             </div>
             <div className="price">
               {money(price())}
-              <span> / report</span>
+              <span> one-time + applicable tax</span>
             </div>
             <p>Start free. Pay when you’re ready to download.</p>
             <ul>

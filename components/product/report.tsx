@@ -482,7 +482,7 @@ export default function ReportView({
             {report.isSample ? (
               <>
                 <div className="download-price">
-                  {money(price)} <span>per report</span>
+                  {money(price)} <span>+ applicable tax</span>
                 </div>
                 <Button className="cta" asChild>
                   <a href="/generate">
@@ -514,7 +514,7 @@ export default function ReportView({
             ) : (
               <>
                 <div className="download-price">
-                  {money(price)} <span>one-time</span>
+                  {money(price)} <span>one-time + applicable tax</span>
                 </div>
                 <Button
                   className="cta"
@@ -534,10 +534,7 @@ export default function ReportView({
           </div>
           {!report.isSample && (
             <>
-              <a
-                className="back-review"
-                href={`/generate/review?report=${id}`}
-              >
+              <a className="back-review" href={`/generate/review?report=${id}`}>
                 <ArrowLeft size={15} /> Back to transaction review
               </a>
               <div className="save-note">
@@ -564,14 +561,14 @@ export default function ReportView({
           <DialogHeader>
             <DialogTitle>Your P&L, ready to download.</DialogTitle>
             <DialogDescription>
-              One payment of {money(price)} unlocks your PDF statement, Excel
-              workbook, and transaction report. Paddle Sandbox will handle the
-              secure checkout.
+              One payment of {money(price)} plus applicable tax unlocks your PDF
+              statement, Excel workbook, and transaction report. Paddle Sandbox
+              will handle the secure checkout.
             </DialogDescription>
           </DialogHeader>
           <div className="checkout-summary">
             <span>Complete Profit & Loss report</span>
-            <strong>{money(price)}</strong>
+            <strong>{money(price)} + applicable tax</strong>
           </div>
           {error && (
             <p className="error-box" role="alert">

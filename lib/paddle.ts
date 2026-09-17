@@ -7,10 +7,18 @@ import {
 } from "@paddle/paddle-node-sdk";
 import { AppError, db, price, setting } from "./server";
 import {
+  ensurePaddleCheckout,
+  type PaddleCheckoutRecord,
+  type PaddleCheckoutStore,
+} from "./paddle-checkout-core";
+import { paddleCheckoutSql, paddleFinalizeSql } from "./paddle-d1";
+import {
   PADDLE_CURRENCY,
   PADDLE_PRICE_AMOUNT,
   PADDLE_PRICE_ID,
   PADDLE_PRODUCT_ID,
+  PADDLE_UNFULFILLABLE_REASON,
+  PADDLE_UNFULFILLABLE_STATUS,
   fulfillPaddlePayment,
   isPaddleNotificationSecret,
   isPaddleSandboxApiKey,
@@ -39,9 +47,7 @@ export function paddleSandboxConfigured() {
     isPaddleSandboxClientToken(setting("NEXT_PUBLIC_PADDLE_CLIENT_TOKEN")) &&
     isPaddleSandboxEnvironment(setting("PADDLE_ENVIRONMENT")) &&
     isPaddleSandboxEnvironment(setting("NEXT_PUBLIC_PADDLE_ENV")) &&
-    isPaddleNotificationSecret(
-      setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET"),
-    ) &&
+    isPaddleNotificationSecret(setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET")) &&
     price() === PADDLE_PRICE_AMOUNT &&
     !!setting("APP_ORIGIN")
   );
@@ -90,6 +96,80 @@ export function paddleWebhookVerifier() {
   return sandboxPaddle().webhooks;
 }
 
+const paddleCheckoutStore: PaddleCheckoutStore = {
+  async claim(input) {
+    const inserted = await db()
+      .prepare(paddleCheckoutSql.insertClaim)
+      .bind(
+        input.id,
+        input.reportId,
+        input.purchaseKey,
+        input.amount,
+        input.now,
+        input.now,
+        input.reportId,
+        input.now,
+      )
+      .run();
+    let claimed = (inserted.meta.changes || 0) > 0;
+    if (!claimed) {
+      const reclaimed = await db()
+        .prepare(
+          "UPDATE payments SET status='creating',checkout_claimed_at=?,failure_reason=NULL WHERE purchase_key=? AND paddle_transaction_id IS NULL AND (status='checkout_failed' OR ((status='creating' OR status='pending') AND COALESCE(checkout_claimed_at,0)<?))",
+        )
+        .bind(input.now, input.purchaseKey, input.staleBefore)
+        .run();
+      claimed = (reclaimed.meta.changes || 0) > 0;
+    }
+    const record = await this.find(input.purchaseKey);
+    if (!record)
+      throw new AppError(
+        "Checkout could not be started. Refresh the report and try again.",
+        409,
+      );
+    return { record, claimed };
+  },
+  async attachTransaction(paymentId, transactionId) {
+    const result = await db()
+      .prepare(
+        "UPDATE payments SET paddle_transaction_id=?,status='pending',checkout_claimed_at=NULL WHERE id=? AND status='creating' AND paddle_transaction_id IS NULL",
+      )
+      .bind(transactionId, paymentId)
+      .run();
+    return (result.meta.changes || 0) > 0;
+  },
+  async markCreationFailed(paymentId) {
+    await db()
+      .prepare(
+        "UPDATE payments SET status='checkout_failed',checkout_claimed_at=NULL,failure_reason='transaction_creation_failed' WHERE id=? AND status='creating' AND paddle_transaction_id IS NULL",
+      )
+      .bind(paymentId)
+      .run();
+  },
+  async find(purchaseKey) {
+    return db()
+      .prepare(
+        "SELECT id,purchase_key,status,paddle_transaction_id FROM payments WHERE purchase_key=?",
+      )
+      .bind(purchaseKey)
+      .first<PaddleCheckoutRecord>();
+  },
+};
+
+export async function getOrCreatePaddleCheckout(
+  reportId: string,
+  amount: number,
+  origin: string,
+) {
+  return ensurePaddleCheckout({
+    reportId,
+    amount,
+    store: paddleCheckoutStore,
+    createTransaction: (targetReportId, paymentId) =>
+      createPaddleCheckout(targetReportId, paymentId, origin),
+  });
+}
+
 const d1PaddlePaymentStore: PaddlePaymentStore = {
   async findByPaddleTransaction(transactionId) {
     return db()
@@ -97,26 +177,40 @@ const d1PaddlePaymentStore: PaddlePaymentStore = {
       .bind(transactionId)
       .first();
   },
-  async markPaddlePaidOnce(payment, transactionId, eventId) {
+  async finalizeCapturedPayment(payment, transactionId, eventId) {
     const analyticsId = `payment_completed:${payment.id}`;
+    const now = Date.now();
     const results = await db().batch([
       db()
-        .prepare(
-          "UPDATE payments SET status='paid',paddle_event_id=? WHERE id=? AND paddle_transaction_id=? AND status='pending'",
-        )
-        .bind(eventId, payment.id, transactionId),
+        .prepare(paddleFinalizeSql.markPaid)
+        .bind(eventId, payment.id, transactionId, payment.report_id, now),
       db()
-        .prepare(
-          "UPDATE reports SET paid=1 WHERE id=? AND paid=0 AND EXISTS (SELECT 1 FROM payments WHERE id=? AND status='paid')",
-        )
-        .bind(payment.report_id, payment.id),
+        .prepare(paddleFinalizeSql.markReportPaid)
+        .bind(payment.report_id, payment.id, eventId),
       db()
-        .prepare(
-          "INSERT INTO events(id,name,metadata,created_at) SELECT ?,'payment_completed','{}',? WHERE EXISTS (SELECT 1 FROM payments WHERE id=? AND status='paid') ON CONFLICT(id) DO NOTHING",
-        )
-        .bind(analyticsId, Date.now(), payment.id),
+        .prepare(paddleFinalizeSql.recordCompleted)
+        .bind(analyticsId, now, payment.id, eventId),
+      db()
+        .prepare(paddleFinalizeSql.markUnfulfillable)
+        .bind(
+          PADDLE_UNFULFILLABLE_STATUS,
+          eventId,
+          PADDLE_UNFULFILLABLE_REASON,
+          payment.id,
+          transactionId,
+          payment.report_id,
+          now,
+        ),
     ]);
-    return (results[0]?.meta.changes || 0) > 0;
+    if ((results[0]?.meta.changes || 0) > 0) return "fulfilled";
+    if ((results[3]?.meta.changes || 0) > 0) return "unfulfillable";
+    const current = await db()
+      .prepare("SELECT status FROM payments WHERE id=?")
+      .bind(payment.id)
+      .first<{ status: string }>();
+    return current?.status === PADDLE_UNFULFILLABLE_STATUS
+      ? "unfulfillable"
+      : "duplicate";
   },
 };
 

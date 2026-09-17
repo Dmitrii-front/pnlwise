@@ -8,19 +8,22 @@ import {
   PADDLE_PRICE_AMOUNT,
   PADDLE_PRICE_ID,
   PADDLE_PRODUCT_ID,
+  PADDLE_UNFULFILLABLE_REASON,
+  PADDLE_UNFULFILLABLE_STATUS,
   fulfillPaddlePayment,
   isPaddleNotificationSecret,
   isPaddleSandboxApiKey,
   isPaddleSandboxClientToken,
   isPaddleSandboxEnvironment,
   paddleTransactionInput,
+  paddlePurchaseKey,
   unmarshalPaddleWebhook,
   type PaddlePaymentRecord,
   type PaddlePaymentStore,
   type PaddleTransactionForFulfillment,
 } from "../lib/paddle-payment-core";
 
-const paymentId = "report-1:7:1299";
+const paymentId = paddlePurchaseKey("report-1");
 const notificationSecret =
   "pdl_ntfset_01m2n7d5jhp19ef6kx6tbsdm06_abcdEFGH/ijklMNOP+qrstUVWxyz";
 const basePayment: PaddlePaymentRecord = {
@@ -59,7 +62,13 @@ function completedTransaction(
       totals: {
         subtotal: String(PADDLE_PRICE_AMOUNT),
         discount: "0",
+        tax: "0",
         total: String(PADDLE_PRICE_AMOUNT),
+        credit: "0",
+        creditToBalance: "0",
+        balance: "0",
+        grandTotal: String(PADDLE_PRICE_AMOUNT),
+        grandTotalTax: "0",
         currencyCode: PADDLE_CURRENCY,
       },
     },
@@ -76,8 +85,12 @@ function completedTransaction(
 
 class MemoryPaddlePaymentStore implements PaddlePaymentStore {
   payment = { ...basePayment };
+  reportExists = true;
+  reportExpiresAt = Date.now() + 60_000;
   reportPaid = false;
   transitionCount = 0;
+  unfulfillableCount = 0;
+  failureReason: string | null = null;
   paymentCompletedEvents = new Set<string>();
 
   async findByPaddleTransaction(transactionId: string) {
@@ -87,7 +100,7 @@ class MemoryPaddlePaymentStore implements PaddlePaymentStore {
       : null;
   }
 
-  async markPaddlePaidOnce(
+  async finalizeCapturedPayment(
     payment: PaddlePaymentRecord,
     transactionId: string,
     eventId: string,
@@ -95,12 +108,20 @@ class MemoryPaddlePaymentStore implements PaddlePaymentStore {
     await Promise.resolve();
     assert.equal(transactionId, "txn_01m2paddleclearledger000000");
     assert.match(eventId, /^evt_/);
-    if (this.payment.status !== "pending") return false;
+    if (this.payment.status === "paid") return "duplicate" as const;
+    if (this.payment.status === PADDLE_UNFULFILLABLE_STATUS)
+      return "unfulfillable" as const;
+    if (!this.reportExists || this.reportExpiresAt <= Date.now()) {
+      this.payment.status = PADDLE_UNFULFILLABLE_STATUS;
+      this.failureReason = PADDLE_UNFULFILLABLE_REASON;
+      this.unfulfillableCount++;
+      return "unfulfillable" as const;
+    }
     this.payment.status = "paid";
     this.reportPaid = true;
     this.transitionCount++;
     this.paymentCompletedEvents.add(`payment_completed:${payment.id}`);
-    return true;
+    return "fulfilled" as const;
   }
 }
 
@@ -142,6 +163,13 @@ test("checkout input fixes the Sandbox catalog item and metadata", () => {
     currencyCode: "USD",
     customData: { reportId: "report-1", paymentId },
   });
+});
+
+test("purchase identity is stable across report revisions", () => {
+  assert.equal(
+    paddlePurchaseKey("report-1"),
+    `paddle:report-1:${PADDLE_PRODUCT_ID}:${PADDLE_PRICE_ID}`,
+  );
 });
 
 test("Sandbox configuration rejects Live credentials", () => {
@@ -242,6 +270,113 @@ test("valid completed Paddle payment unlocks exactly once", async () => {
   assert.equal(store.paymentCompletedEvents.size, 1);
 });
 
+test("captured payment after report deletion is durably unfulfillable", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  store.reportExists = false;
+  assert.deepEqual(
+    await fulfillPaddlePayment(completedTransaction(), "evt_deleted", store),
+    { status: "unfulfillable" },
+  );
+  assert.equal(store.payment.status, PADDLE_UNFULFILLABLE_STATUS);
+  assert.equal(store.failureReason, PADDLE_UNFULFILLABLE_REASON);
+  assert.equal(store.reportPaid, false);
+  assert.equal(store.paymentCompletedEvents.size, 0);
+});
+
+test("captured payment after report expiration is durably unfulfillable", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  store.reportExpiresAt = 0;
+  assert.deepEqual(
+    await fulfillPaddlePayment(completedTransaction(), "evt_expired", store),
+    { status: "unfulfillable" },
+  );
+  assert.equal(store.payment.status, PADDLE_UNFULFILLABLE_STATUS);
+  assert.equal(store.reportPaid, false);
+  assert.equal(store.paymentCompletedEvents.size, 0);
+});
+
+test("duplicate webhook for an unfulfillable capture has no repeated side effects", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  store.reportExists = false;
+  assert.equal(
+    (await fulfillPaddlePayment(completedTransaction(), "evt_missing", store))
+      .status,
+    "unfulfillable",
+  );
+  assert.equal(
+    (await fulfillPaddlePayment(completedTransaction(), "evt_again", store))
+      .status,
+    "unfulfillable",
+  );
+  assert.equal(store.unfulfillableCount, 1);
+  assert.equal(store.paymentCompletedEvents.size, 0);
+});
+
+test("valid Paddle tax increases the captured total without changing the base", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  assert.equal(
+    (
+      await fulfillPaddlePayment(
+        completedTransaction({
+          details: {
+            totals: {
+              subtotal: "1299",
+              discount: "0",
+              tax: "104",
+              total: "1403",
+              credit: "0",
+              creditToBalance: "0",
+              balance: "0",
+              grandTotal: "1403",
+              grandTotalTax: "104",
+              currencyCode: "USD",
+            },
+          },
+          payments: [{ amount: "1403", status: "captured", errorCode: null }],
+        }),
+        "evt_tax",
+        store,
+      )
+    ).status,
+    "fulfilled",
+  );
+});
+
+test("inconsistent tax, captured totals, discounts, and credits fail closed", async () => {
+  const totals = completedTransaction().details!.totals!;
+  const invalid: PaddleTransactionForFulfillment[] = [
+    completedTransaction({
+      details: { totals: { ...totals, tax: "104", total: "1399" } },
+      payments: [{ amount: "1399", status: "captured", errorCode: null }],
+    }),
+    completedTransaction({
+      payments: [{ amount: "1403", status: "captured", errorCode: null }],
+    }),
+    completedTransaction({
+      details: { totals: { ...totals, discount: "100", total: "1199" } },
+      payments: [{ amount: "1199", status: "captured", errorCode: null }],
+    }),
+    completedTransaction({
+      details: {
+        totals: {
+          ...totals,
+          credit: "100",
+          grandTotal: "1199",
+        },
+      },
+      payments: [{ amount: "1199", status: "captured", errorCode: null }],
+    }),
+  ];
+  for (const transaction of invalid) {
+    const store = new MemoryPaddlePaymentStore();
+    assert.deepEqual(
+      await fulfillPaddlePayment(transaction, "evt_invalid_totals", store),
+      { status: "error", error: "verification_mismatch" },
+    );
+    assert.equal(store.reportPaid, false);
+  }
+});
+
 test("wrong report, price, product, quantity, amount, or currency never unlocks", async () => {
   const base = completedTransaction();
   const invalid: PaddleTransactionForFulfillment[] = [
@@ -285,7 +420,13 @@ test("wrong report, price, product, quantity, amount, or currency never unlocks"
         totals: {
           subtotal: "1300",
           discount: "0",
+          tax: "0",
           total: "1300",
+          credit: "0",
+          creditToBalance: "0",
+          balance: "0",
+          grandTotal: "1300",
+          grandTotalTax: "0",
           currencyCode: PADDLE_CURRENCY,
         },
       },

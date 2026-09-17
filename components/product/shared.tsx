@@ -69,7 +69,7 @@ export const faqs = [
   ],
   [
     "When do I have to pay?",
-    `Your report preview is free. Pay ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(config.priceCents / 100)} once to unlock the PDF, Excel workbook, and transaction report. There is no subscription.`,
+    `Your report preview is free. Pay ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(config.priceCents / 100)} once, plus applicable tax, to unlock the PDF, Excel workbook, and transaction report. There is no subscription.`,
   ],
   [
     "Is this a certified financial statement?",

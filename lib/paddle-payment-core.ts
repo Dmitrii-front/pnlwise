@@ -13,6 +13,9 @@ export interface PaddlePaymentRecord {
   status: string;
 }
 
+export const PADDLE_UNFULFILLABLE_STATUS = "captured_unfulfillable";
+export const PADDLE_UNFULFILLABLE_REASON = "report_missing_or_expired";
+
 export interface PaddleTransactionForFulfillment {
   id: string;
   status: string;
@@ -33,7 +36,13 @@ export interface PaddleTransactionForFulfillment {
     totals: {
       subtotal: string;
       discount: string;
+      tax: string;
       total: string;
+      credit: string;
+      creditToBalance: string;
+      balance: string;
+      grandTotal: string;
+      grandTotalTax: string;
       currencyCode: string;
     } | null;
   } | null;
@@ -48,16 +57,17 @@ export interface PaddlePaymentStore {
   findByPaddleTransaction(
     transactionId: string,
   ): Promise<PaddlePaymentRecord | null>;
-  markPaddlePaidOnce(
+  finalizeCapturedPayment(
     payment: PaddlePaymentRecord,
     transactionId: string,
     eventId: string,
-  ): Promise<boolean>;
+  ): Promise<"fulfilled" | "duplicate" | "unfulfillable">;
 }
 
 export type PaddleFulfillmentResult =
   | { status: "fulfilled" }
   | { status: "duplicate" }
+  | { status: "unfulfillable" }
   | { status: "ignored" }
   | { status: "error"; error: "not_registered" | "verification_mismatch" };
 
@@ -87,6 +97,16 @@ export function paddleTransactionInput(reportId: string, paymentId: string) {
   };
 }
 
+export function paddlePurchaseKey(reportId: string) {
+  return `paddle:${reportId}:${PADDLE_PRODUCT_ID}:${PADDLE_PRICE_ID}`;
+}
+
+function nonNegativeInteger(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export async function unmarshalPaddleWebhook(
   payload: string,
   signature: string,
@@ -111,12 +131,31 @@ export async function fulfillPaddlePayment(
   const totals = transaction.details?.totals;
   const reportId = transaction.customData?.reportId;
   const paymentId = transaction.customData?.paymentId;
-  const captured = transaction.payments.some(
-    (attempt) =>
-      attempt.status === "captured" &&
-      attempt.errorCode === null &&
-      attempt.amount === totals?.total,
+  const subtotal = nonNegativeInteger(totals?.subtotal);
+  const discount = nonNegativeInteger(totals?.discount);
+  const tax = nonNegativeInteger(totals?.tax);
+  const total = nonNegativeInteger(totals?.total);
+  const credit = nonNegativeInteger(totals?.credit);
+  const creditToBalance = nonNegativeInteger(totals?.creditToBalance);
+  const balance = nonNegativeInteger(totals?.balance);
+  const grandTotal = nonNegativeInteger(totals?.grandTotal);
+  const grandTotalTax = nonNegativeInteger(totals?.grandTotalTax);
+  const capturedAttempts = transaction.payments.filter(
+    (attempt) => attempt.status === "captured" && attempt.errorCode === null,
   );
+  const validTotals =
+    subtotal === PADDLE_PRICE_AMOUNT &&
+    discount === 0 &&
+    tax !== null &&
+    total === subtotal + tax &&
+    credit === 0 &&
+    creditToBalance === 0 &&
+    balance === 0 &&
+    grandTotal === total &&
+    grandTotalTax === tax;
+  const captured =
+    capturedAttempts.length === 1 &&
+    nonNegativeInteger(capturedAttempts[0]?.amount) === total;
   const matches =
     transaction.subscriptionId === null &&
     transaction.items.length === 1 &&
@@ -129,8 +168,7 @@ export async function fulfillPaddlePayment(
     item.price.unitPrice.currencyCode === PADDLE_CURRENCY &&
     transaction.currencyCode === PADDLE_CURRENCY &&
     totals?.currencyCode === PADDLE_CURRENCY &&
-    totals.subtotal === String(PADDLE_PRICE_AMOUNT) &&
-    totals.discount === "0" &&
+    validTotals &&
     captured &&
     payment.amount === PADDLE_PRICE_AMOUNT &&
     payment.currency === PADDLE_CURRENCY.toLowerCase() &&
@@ -139,7 +177,13 @@ export async function fulfillPaddlePayment(
 
   if (!matches) return { status: "error", error: "verification_mismatch" };
   if (payment.status === "paid") return { status: "duplicate" };
-  return (await store.markPaddlePaidOnce(payment, transaction.id, eventId))
-    ? { status: "fulfilled" }
-    : { status: "duplicate" };
+  if (payment.status === PADDLE_UNFULFILLABLE_STATUS)
+    return { status: "unfulfillable" };
+  return {
+    status: await store.finalizeCapturedPayment(
+      payment,
+      transaction.id,
+      eventId,
+    ),
+  };
 }
