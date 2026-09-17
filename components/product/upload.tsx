@@ -463,66 +463,79 @@ export default function UploadForm() {
           if (!open) setMapping(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Match your statement columns</DialogTitle>
             <DialogDescription>
               We need a little help reading {mapping?.file.name}. Select the
-              date, description, and either a signed amount or separate debit
-              and credit columns.
+              date, description, and either an amount with its direction or
+              separate debit and credit columns.
             </DialogDescription>
           </DialogHeader>
-          {["date", "description", "amount", "debit", "credit", "currency"].map(
-            (k) => (
-              <label key={k} className="field">
-                {k.charAt(0).toUpperCase() + k.slice(1)}
-                <Select
-                  value={map[k] || "none"}
-                  onValueChange={(v) =>
-                    setMap({ ...map, [k]: v === "none" ? "" : v })
-                  }
-                >
-                  <SelectTrigger aria-label={`Map ${k}`}>
-                    <SelectValue placeholder="Not used" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Not used</SelectItem>
-                    {mapping?.headers.map((h) => (
-                      <SelectItem key={h} value={h}>
-                        {h}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-            ),
-          )}
-          <label className="field">
-            Signed amount convention
-            <Select
-              value={map.convention || "credit-positive"}
-              onValueChange={(v) => setMap({ ...map, convention: v })}
-            >
-              <SelectTrigger aria-label="Amount convention">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="credit-positive">
-                  Positive = money in
-                </SelectItem>
-                <SelectItem value="debit-positive">
-                  Positive = money out
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
+          {[
+            "date",
+            "description",
+            "amount",
+            "direction",
+            "debit",
+            "credit",
+            "currency",
+          ].map((k) => (
+            <label key={k} className="field">
+              {k.charAt(0).toUpperCase() + k.slice(1)}
+              <Select
+                value={map[k] || "none"}
+                onValueChange={(v) =>
+                  setMap({ ...map, [k]: v === "none" ? "" : v })
+                }
+              >
+                <SelectTrigger aria-label={`Map ${k}`}>
+                  <SelectValue placeholder="Not used" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not used</SelectItem>
+                  {mapping?.headers.map((h) => (
+                    <SelectItem key={h} value={h}>
+                      {h}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          ))}
+          {map.amount && !map.direction && !map.debit && !map.credit ? (
+            <label className="field">
+              Signed amount convention
+              <Select
+                value={map.convention || undefined}
+                onValueChange={(v) => setMap({ ...map, convention: v })}
+              >
+                <SelectTrigger aria-label="Amount convention">
+                  <SelectValue placeholder="Choose money in or money out" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="credit-positive">
+                    Positive = money in / credit
+                  </SelectItem>
+                  <SelectItem value="debit-positive">
+                    Positive = money out / debit
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          ) : null}
           <DialogFooter>
             <Button
               disabled={
                 busy ||
                 !map.date ||
                 !map.description ||
-                !(map.amount || map.debit || map.credit)
+                !(map.amount || map.debit || map.credit) ||
+                (!!map.amount &&
+                  !map.direction &&
+                  !map.debit &&
+                  !map.credit &&
+                  !map.convention)
               }
               onClick={() => void analyze(map)}
             >

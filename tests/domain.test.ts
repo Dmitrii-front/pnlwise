@@ -28,10 +28,9 @@ import {
 import { pdfExport, xlsxExport, csvExport } from "../lib/export";
 import { verifyStripeSignature } from "../lib/stripe-signature";
 const tx = (description: string, amount: string, date = "2026-01-01") =>
-  parseCsv(
-    `Date,Description,Amount\n${date},${description},${amount}`,
-    "s1",
-  )[0];
+  parseCsv(`Date,Description,Amount\n${date},${description},${amount}`, "s1", {
+    convention: "credit-positive",
+  })[0];
 const pnl = (ts: Transaction[]) => calculatePnl(ts, "2026-01-01", "2026-12-31");
 const arrayBuffer = (bytes: Uint8Array) =>
   bytes.buffer.slice(
@@ -52,13 +51,66 @@ test("validates US and ISO dates without rolling invalid dates", () => {
   assert.throws(() => parseDate("02/30/2026"));
   assert.throws(() => parseDate("13/01/2026"));
 });
-test("CSV detects separate debit/credit columns and quoted merchant commas", () => {
+test("generic CSV amounts require and honor an explicit sign convention", () => {
+  const input =
+    "Date,Description,Amount\n01/01/2026,Positive,100\n01/02/2026,Negative,-25";
+  assert.throws(
+    () => parseCsv(input, "ambiguous"),
+    (error: unknown) =>
+      error instanceof ParseError &&
+      /positive amounts mean money in or money out/.test(error.message) &&
+      error.headers?.includes("Amount") === true,
+  );
+  const creditPositive = parseCsv(input, "credit-positive", {
+    convention: "credit-positive",
+  });
+  assert.deepEqual(
+    creditPositive.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "credit" },
+      { amount: 2500, direction: "debit" },
+    ],
+  );
+  const debitPositive = parseCsv(input, "debit-positive", {
+    convention: "debit-positive",
+  });
+  assert.deepEqual(
+    debitPositive.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "debit" },
+      { amount: 2500, direction: "credit" },
+    ],
+  );
+});
+test("CSV Debit and Credit columns use positive magnitudes and reject negatives", () => {
   const ts = parseCsv(
-    'Posted Date,Description,Debit,Credit\n01/01/2026,"Acme, Inc",,1200.42\n01/02/2026,Software,42.31,',
+    'Posted Date,Description,Debit,Credit\n01/01/2026,"Acme, Inc",,100\n01/02/2026,Software,100,',
     "s",
   );
-  assert.equal(ts[0].amount, 120042);
+  assert.deepEqual(
+    ts.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "credit" },
+      { amount: 10000, direction: "debit" },
+    ],
+  );
   assert.equal(ts[1].direction, "debit");
+  assert.throws(
+    () =>
+      parseCsv(
+        "Date,Description,Debit,Credit\n01/01/2026,Invalid,-100,",
+        "negative-debit",
+      ),
+    /Debit values must be positive amounts/,
+  );
+  assert.throws(
+    () =>
+      parseCsv(
+        "Date,Description,Debit,Credit\n01/01/2026,Invalid,,-100",
+        "negative-credit",
+      ),
+    /Credit values must be positive amounts/,
+  );
 });
 test("ambiguous columns require mapping; explicit convention supports positive withdrawals", () => {
   assert.throws(
@@ -79,12 +131,17 @@ test("malformed rows fail the whole file and identify row number", () => {
       parseCsv(
         "Date,Description,Amount\n01/01/2026,Valid,10\nnot-a-date,Broken,xyz",
         "s",
+        { convention: "credit-positive" },
       ),
     /Row 3/,
   );
   assert.throws(
     () =>
-      parseCsv("Date,Description,Amount,Currency\n01/01/2026,Test,10,EUR", "s"),
+      parseCsv(
+        "Date,Description,Amount,Currency\n01/01/2026,Test,10,EUR",
+        "s",
+        { convention: "credit-positive" },
+      ),
     /Only USD/,
   );
 });
@@ -221,7 +278,7 @@ test("distinct known accounts prevent false duplicate matching", () => {
     undefined,
   );
 });
-test("transfer matching needs distinct accounts, opposite amount, and descriptions", () => {
+test("matched transfers require confirmation, block generation, and remain editable", () => {
   const a = tx("Transfer to savings", "-200"),
     b = {
       ...tx("Transfer from checking", "200", "2026-01-02"),
@@ -234,6 +291,25 @@ test("transfer matching needs distinct accounts, opposite amount, and descriptio
   ] as Parameters<typeof detectTransfers>[1];
   const ts = detectTransfers([a, b], statements);
   assert.ok(ts.every((t) => t.isTransfer && t.confidence > 0.9));
+  assert.ok(ts.every(needsReview));
+  assert.equal(ts.filter(needsReview).length, 2);
+  assert.ok(
+    ts.every(
+      (t) =>
+        /Suggested transfer match/.test(t.aiReason) &&
+        /Confirm Transfer/.test(t.aiReason),
+    ),
+  );
+
+  const confirmed = ts.map((t) => setCategory(t, "transfer"));
+  assert.ok(confirmed.every((t) => !needsReview(t)));
+  assert.equal(pnl(confirmed).netProfit, 0);
+  assert.equal(pnl(confirmed).excludedCount, 2);
+
+  const corrected = setCategory(ts[0], "sales");
+  assert.equal(corrected.categoryId, "sales");
+  assert.equal(corrected.isTransfer, false);
+  assert.equal(needsReview(corrected), false);
   assert.equal(
     detectTransfers(
       [a, { ...b, rawDescription: "Client payment" }],
@@ -276,9 +352,85 @@ test("reads actual XLSX dates and amounts", async () => {
   const rows = await parseXlsx(
     Uint8Array.from(new Uint8Array(buffer)).buffer,
     "xlsx",
+    { convention: "credit-positive" },
   );
   assert.equal(rows[0].amount, 12345);
   assert.equal(rows[0].date, "2026-01-01");
+});
+test("generic XLSX amounts require and honor an explicit sign convention", async () => {
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet("Transactions");
+  sheet.addRow(["Date", "Description", "Amount"]);
+  sheet.addRow(["2026-01-01", "Positive", 100]);
+  sheet.addRow(["2026-01-02", "Negative", -25]);
+  const bytes = Uint8Array.from(new Uint8Array(await wb.xlsx.writeBuffer()));
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(bytes), "ambiguous-xlsx"),
+    /positive amounts mean money in or money out/,
+  );
+  const creditPositive = await parseXlsx(
+    arrayBuffer(bytes),
+    "credit-positive-xlsx",
+    { convention: "credit-positive" },
+  );
+  assert.deepEqual(
+    creditPositive.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "credit" },
+      { amount: 2500, direction: "debit" },
+    ],
+  );
+  const debitPositive = await parseXlsx(
+    arrayBuffer(bytes),
+    "debit-positive-xlsx",
+    { convention: "debit-positive" },
+  );
+  assert.deepEqual(
+    debitPositive.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "debit" },
+      { amount: 2500, direction: "credit" },
+    ],
+  );
+});
+test("XLSX Debit and Credit columns reject negative values", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Transactions");
+  sheet.addRow(["Date", "Description", "Debit", "Credit"]);
+  sheet.addRow(["2026-01-01", "Debit", 100, null]);
+  sheet.addRow(["2026-01-02", "Credit", null, 100]);
+  const valid = Uint8Array.from(
+    new Uint8Array(await workbook.xlsx.writeBuffer()),
+  );
+  const rows = await parseXlsx(arrayBuffer(valid), "split-xlsx");
+  assert.deepEqual(
+    rows.map(({ amount, direction }) => ({ amount, direction })),
+    [
+      { amount: 10000, direction: "debit" },
+      { amount: 10000, direction: "credit" },
+    ],
+  );
+
+  sheet.addRow(["2026-01-03", "Negative debit", -100, null]);
+  const negativeDebit = Uint8Array.from(
+    new Uint8Array(await workbook.xlsx.writeBuffer()),
+  );
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(negativeDebit), "negative-debit-xlsx"),
+    /Debit values must be positive amounts/,
+  );
+
+  const creditWorkbook = new ExcelJS.Workbook();
+  const creditSheet = creditWorkbook.addWorksheet("Transactions");
+  creditSheet.addRow(["Date", "Description", "Debit", "Credit"]);
+  creditSheet.addRow(["2026-01-01", "Negative credit", null, -100]);
+  const negativeCredit = Uint8Array.from(
+    new Uint8Array(await creditWorkbook.xlsx.writeBuffer()),
+  );
+  await assert.rejects(
+    () => parseXlsx(arrayBuffer(negativeCredit), "negative-credit-xlsx"),
+    /Credit values must be positive amounts/,
+  );
 });
 test("reads namespace-prefixed XLSX and preserves every source row", async () => {
   const bytes = await readFile(

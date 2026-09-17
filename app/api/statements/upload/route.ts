@@ -89,6 +89,7 @@ export const POST = (req: Request) =>
         rows: rows.length,
         account: String(form.get("account") || "").slice(0, 40),
         status: "read",
+        amountConvention: mapping?.convention,
       });
       const saved = await saveReport(report);
       await track("upload_completed", {

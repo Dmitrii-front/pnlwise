@@ -10,6 +10,7 @@ function transaction(description: string, amount: string, id: string) {
       parseCsv(
         `Date,Description,Amount\n01/15/2026,${description},${amount}`,
         "statement",
+        { convention: "credit-positive" },
       )[0],
     ),
     id,

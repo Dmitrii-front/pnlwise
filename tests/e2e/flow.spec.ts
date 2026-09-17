@@ -23,14 +23,40 @@ test("anonymous upload, review, loan split, P&L, unpaid export, and delete", asy
   await page.getByRole("option", { name: "Consulting", exact: true }).click();
   await page.getByPlaceholder("Your business name").fill("Acme Test Studio");
   await page.getByRole("button", { name: "Analyze statements" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Match your statement columns" }),
+  ).toBeVisible();
+  for (const [field, column] of [
+    ["date", "Date"],
+    ["description", "Description"],
+    ["amount", "Amount"],
+    ["currency", "Currency"],
+  ]) {
+    await page.getByRole("combobox", { name: `Map ${field}` }).click();
+    await page.getByRole("option", { name: column, exact: true }).click();
+  }
+  await page.getByRole("combobox", { name: "Amount convention" }).click();
+  await page
+    .getByRole("option", { name: "Positive = money in / credit" })
+    .click();
+  await page.getByRole("button", { name: "Use these columns" }).click();
   await expect(page).toHaveURL(/generate\/review\?report=/, { timeout: 60000 });
   await expect(
     page.getByRole("heading", { name: "Review your transactions." }),
   ).toBeVisible();
   const id = new URL(page.url()).searchParams.get("report")!;
-  const response = await page.request.get(`/api/reports/${id}`);
-  const payload = await response.json();
+  const payload = (await page.evaluate(async (reportId) => {
+    const response = await fetch(`/api/reports/${reportId}`);
+    return response.json();
+  }, id)) as {
+    report: {
+      transactions: unknown[];
+      statements: { amountConvention?: string }[];
+    };
+    reviewCount: number;
+  };
   expect(payload.report.transactions).toHaveLength(8);
+  expect(payload.report.statements[0].amountConvention).toBe("credit-positive");
   expect(payload.reviewCount).toBe(4);
   const stranger = await browser.newContext();
   const other = await stranger.request.get(`/api/reports/${id}`);
@@ -67,8 +93,11 @@ test("anonymous upload, review, loan split, P&L, unpaid export, and delete", asy
   await page.getByRole("tab", { name: "Detailed", exact: true }).click();
   await expect(page.locator(".report-category details").first()).toBeVisible();
   await page.screenshot({ path: "outputs/report-desktop.png", fullPage: true });
-  const unpaid = await page.request.get(`/api/reports/${id}/export/pdf`);
-  expect(unpaid.status()).toBe(402);
+  const unpaidStatus = await page.evaluate(async (reportId) => {
+    const response = await fetch(`/api/reports/${reportId}/export/pdf`);
+    return response.status;
+  }, id);
+  expect(unpaidStatus).toBe(402);
   const noOrigin = await request.post("/api/reports", {
     data: { businessType: "Other" },
   });

@@ -8,18 +8,17 @@ export class ParseError extends Error {
     super(message);
   }
 }
-export type Mapping = Partial<
-  Record<
-    | "date"
-    | "description"
-    | "amount"
-    | "debit"
-    | "credit"
-    | "currency"
-    | "convention",
-    string
-  >
->;
+type MappingColumn =
+  | "date"
+  | "description"
+  | "amount"
+  | "direction"
+  | "debit"
+  | "credit"
+  | "currency";
+export type Mapping = Partial<Record<MappingColumn, string>> & {
+  convention?: "credit-positive" | "debit-positive";
+};
 const aliases: Record<string, string[]> = {
   date: ["date", "transactiondate", "posteddate", "postingdate", "postdate"],
   description: [
@@ -32,6 +31,7 @@ const aliases: Record<string, string[]> = {
     "name",
   ],
   amount: ["amount", "transactionamount", "signedamount"],
+  direction: ["direction", "debitcredit"],
   debit: [
     "debit",
     "debits",
@@ -91,21 +91,21 @@ function detect(headers: string[], mapping?: Mapping): Mapping {
     const matches = headers.filter((h) =>
       aliases[key].includes(h.toLowerCase().replace(/[^a-z]/g, "")),
     );
-    if (matches.length === 1) result[key as keyof Mapping] = matches[0];
+    if (matches.length === 1) result[key as MappingColumn] = matches[0];
   }
   if (mapping) {
     for (const [k, v] of Object.entries(mapping)) {
       if (k === "convention") {
         if (!["credit-positive", "debit-positive"].includes(v || ""))
           throw new ParseError("Choose a valid amount convention.");
-        result.convention = v;
+        result.convention = v as Mapping["convention"];
         continue;
       }
       if (!Object.keys(aliases).includes(k))
         throw new ParseError("Unknown column mapping.");
       if (v && !headers.includes(v))
         throw new ParseError("Choose a column from this statement.");
-      result[k as keyof Mapping] = v || undefined;
+      result[k as MappingColumn] = v || undefined;
     }
   }
   if (
@@ -117,10 +117,22 @@ function detect(headers: string[], mapping?: Mapping): Mapping {
       "Match the columns in this statement to continue.",
       headers,
     );
+  if (
+    result.amount &&
+    !result.direction &&
+    !result.debit &&
+    !result.credit &&
+    !result.convention
+  )
+    throw new ParseError(
+      "Choose whether positive amounts mean money in or money out.",
+      headers,
+    );
   const keys = [
     result.date,
     result.description,
     result.amount,
+    result.direction,
     result.debit,
     result.credit,
     result.currency,
@@ -192,6 +204,14 @@ export function parseRows(
           credit = String(get(r, "credit") ?? "").trim();
         const d = debit ? cents(debit) : 0,
           c = credit ? cents(credit) : 0;
+        if (d < 0)
+          throw new ParseError(
+            "Debit values must be positive amounts. Remove the negative sign or correct the column mapping.",
+          );
+        if (c < 0)
+          throw new ParseError(
+            "Credit values must be positive amounts. Remove the negative sign or correct the column mapping.",
+          );
         if (d && c)
           throw new ParseError(
             "Both debit and credit are filled. Choose one amount column instead.",
@@ -199,6 +219,14 @@ export function parseRows(
         if (!debit && !credit)
           throw new ParseError("Both debit and credit are empty.");
         signed = c - d;
+      } else if (m.direction) {
+        const direction = String(get(r, "direction") ?? "")
+          .trim()
+          .toLowerCase();
+        if (!["debit", "credit"].includes(direction))
+          throw new ParseError('Direction must be either "debit" or "credit".');
+        const amount = Math.abs(cents(get(r, "amount")));
+        signed = direction === "debit" ? -amount : amount;
       } else {
         signed = cents(get(r, "amount"));
         if (m.convention === "debit-positive") signed = -signed;
@@ -643,7 +671,12 @@ export async function parsePdf(buffer: ArrayBuffer, id: string) {
       throw new ParseError(
         "We couldn’t reliably read every transaction or its direction from this PDF. Download a CSV or Excel statement from your bank and upload it instead. Scanned PDFs and unsigned PDF amounts are not supported.",
       );
-    return parseRows(rows, id);
+    return parseRows(rows, id, {
+      date: "Date",
+      description: "Description",
+      amount: "Amount",
+      convention: "credit-positive",
+    });
   } catch (e) {
     if (e instanceof ParseError) throw e;
     throw new ParseError(

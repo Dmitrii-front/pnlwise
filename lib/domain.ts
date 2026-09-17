@@ -101,6 +101,7 @@ export interface Statement {
   rows: number;
   account: string;
   status: string;
+  amountConvention?: "credit-positive" | "debit-positive";
   headers?: string[];
   error?: string;
 }
@@ -125,6 +126,7 @@ export interface Report {
 export function needsReview(t: Transaction) {
   return (
     t.categoryId === "refund" ||
+    (t.categoryId === "transfer" && !t.userConfirmed) ||
     (!t.userConfirmed &&
       (t.confidence < confidenceThresholds.high ||
         t.categoryId === "unknown" ||
@@ -333,11 +335,12 @@ export function detectTransfers(ts: Transaction[], statements: Statement[]) {
         /(transfer|xfer)/i.test(u.rawDescription),
     );
     if (candidates.length === 1) {
+      const pair = candidates[0];
       for (const a of [t, candidates[0]]) {
+        const counterpart = a.id === t.id ? pair : t;
         Object.assign(a, setCategory(a, "transfer", false), {
           confidence: 0.94,
-          aiReason:
-            "Matching opposite transfer between two specified accounts within three days.",
+          aiReason: `Suggested transfer match: ${counterpart.rawDescription} on ${counterpart.date}, an equal amount in the opposite direction between two specified accounts. Confirm Transfer to exclude it from the P&L.`,
         });
         matched.add(a.id);
       }

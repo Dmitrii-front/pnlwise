@@ -44,6 +44,8 @@ import { DeleteData } from "./session";
 
 function reviewStatus(t: Transaction) {
   if (t.categoryId === "refund") return { label: "Review", level: "low" };
+  if (t.categoryId === "transfer" && !t.userConfirmed)
+    return { label: "Review", level: "low" };
   if (t.userConfirmed) return { label: "Confirmed", level: "confirmed" };
   if (t.confidence >= confidenceThresholds.high)
     return { label: "High", level: "high" };
