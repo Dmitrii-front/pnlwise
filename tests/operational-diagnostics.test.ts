@@ -28,6 +28,9 @@ test("structured diagnostics retain only stable safe operational fields", () => 
     event: "operational_error",
     code: "PADDLE_CHECKOUT_CREATE_FAILED",
     stage: "paddle.checkout.create",
+    subsystem: "payments",
+    route: "api.checkout",
+    provider: "paddle",
     provider_request_id: "req_safe-123456",
     alertable: true,
   });
@@ -55,6 +58,7 @@ test("unsafe diagnostic values and provider identifiers are rejected", () => {
       event: "operational_error",
       code: "DIAGNOSTIC_INVALID",
       stage: "diagnostic.invalid",
+      subsystem: "runtime",
       alertable: false,
     },
   );

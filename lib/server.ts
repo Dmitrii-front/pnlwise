@@ -165,13 +165,28 @@ export function json(data: unknown, status = 200) {
     },
   });
 }
-export async function api(fn: () => Promise<Response>) {
+export async function api(
+  fn: () => Promise<Response>,
+  context: Partial<
+    Pick<
+      OperationalDiagnostic,
+      "subsystem" | "route" | "stage" | "provider" | "retryable"
+    >
+  > = {},
+) {
   try {
     return await fn();
   } catch (error) {
     if (error instanceof AppError) {
       if (error.diagnostic && !operationalErrorWasReported(error))
-        await reportOperationalError(error.diagnostic, error);
+        await reportOperationalError(
+          {
+            ...context,
+            httpStatus: error.status,
+            ...error.diagnostic,
+          },
+          error,
+        );
       return json(
         { error: error.message, details: error.details },
         error.status,
@@ -179,7 +194,16 @@ export async function api(fn: () => Promise<Response>) {
     }
     if (!operationalErrorWasReported(error))
       await reportOperationalError(
-        { code: "REQUEST_FAILED", stage: "api.request", alertable: true },
+        {
+          code: "REQUEST_FAILED",
+          stage: context.stage || "api.request",
+          subsystem: context.subsystem,
+          route: context.route,
+          provider: context.provider,
+          httpStatus: 500,
+          retryable: context.retryable,
+          alertable: true,
+        },
         error,
       );
     await track("server_error", {

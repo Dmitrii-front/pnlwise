@@ -80,7 +80,7 @@ This optional integration cannot be end-to-end verified without a configured Aut
 
 Funnel events are persisted server-side in D1 `events`. Client-supplied metadata is allowlisted; no raw descriptions, filenames, financial amounts, or business names enter analytics. Error events store error class names only. See `lib/server.ts` for the scrubbed server error boundary.
 
-Configure production alerting against Worker errors/event counts before launch. Provider dashboard access and third-party alerts are not configured in this preview.
+Server-side operational failures are sent to Sentry only when marked `alertable`. Events contain stable error, subsystem, route, stage, retryability, environment, and optional validated provider-request identifiers. They omit request bodies, cookies, authorization data, report contents, financial values, customer data, breadcrumbs, and user context. Configure `SENTRY_DSN` as a server secret and `SENTRY_ENVIRONMENT` as a non-secret deployment label. The authenticated staging-only `/api/monitoring/proof` route can verify ingestion without customer data. Configure a Sentry issue alert filtered to `alertable:true` for email or the chosen on-call channel before launch.
 
 ## Data retention and security
 

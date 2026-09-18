@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { categorizeTransactionsWithOpenAI } from "../lib/ai-classification";
+import {
+  categorizeTransactionsWithOpenAI,
+  openAiFailureDiagnostic,
+  OpenAIClassificationError,
+} from "../lib/ai-classification";
+import { safeOperationalDiagnostic } from "../lib/operational-diagnostics";
 import { classify, needsReview, type Transaction } from "../lib/domain";
 import { parseCsv } from "../lib/parsing";
 
@@ -185,4 +190,104 @@ test("AI output must return each requested transaction exactly once", async () =
       }),
     /invalid classification IDs/,
   );
+});
+
+test("OpenAI provider failures have stable safe classifications without mutating fallback data", async () => {
+  const transactions = [transaction("PRIVATE MERCHANT", "-25", "unknown")];
+  const original = structuredClone(transactions);
+  const cases = [
+    {
+      response: new Response("{}", {
+        status: 429,
+        headers: { "x-request-id": "req_rate-limit-123" },
+      }),
+      code: "OPENAI_RATE_LIMITED",
+      stage: "openai.categorization.rate_limit",
+      retryable: true,
+      status: 429,
+    },
+    {
+      response: new Response("{}", {
+        status: 503,
+        headers: { "x-request-id": "req_server-123456" },
+      }),
+      code: "OPENAI_PROVIDER_FAILED",
+      stage: "openai.categorization.provider",
+      retryable: true,
+      status: 503,
+    },
+    {
+      response: new Response('{"status":"completed","output_text":"bad"}', {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-id": "req_invalid-12345",
+        },
+      }),
+      code: "OPENAI_RESPONSE_INVALID",
+      stage: "openai.categorization.response",
+      retryable: false,
+      status: 200,
+    },
+  ];
+
+  for (const expected of cases) {
+    let failure: unknown;
+    try {
+      await categorizeTransactionsWithOpenAI({
+        transactions,
+        businessType: "Other",
+        apiKey: "test-key",
+        model: "test-model",
+        fetcher: async () => expected.response,
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.ok(failure instanceof OpenAIClassificationError);
+    const safe = safeOperationalDiagnostic(openAiFailureDiagnostic(failure));
+    assert.equal(safe.code, expected.code);
+    assert.equal(safe.stage, expected.stage);
+    assert.equal(safe.retryable, expected.retryable);
+    assert.equal(
+      safe.http_status,
+      expected.status >= 400 ? expected.status : undefined,
+    );
+    assert.equal(safe.provider, "openai");
+    assert.equal(safe.route, "api.reports.process");
+  }
+  assert.deepEqual(transactions, original);
+  assert.equal(
+    JSON.stringify(cases.map((item) => item.code)).includes("PRIVATE MERCHANT"),
+    false,
+  );
+});
+
+test("OpenAI timeout and network failures remain distinguishable and retryable", async () => {
+  const transactions = [transaction("UNKNOWN VENDOR", "-25", "unknown")];
+  for (const [name, code, stage] of [
+    ["TimeoutError", "OPENAI_TIMEOUT", "openai.categorization.timeout"],
+    ["TypeError", "OPENAI_NETWORK_FAILED", "openai.categorization.network"],
+  ] as const) {
+    let failure: unknown;
+    try {
+      await categorizeTransactionsWithOpenAI({
+        transactions,
+        businessType: "Other",
+        apiKey: "test-key",
+        model: "test-model",
+        fetcher: async () => {
+          const error = new Error("provider request failed");
+          error.name = name;
+          throw error;
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const safe = safeOperationalDiagnostic(openAiFailureDiagnostic(failure));
+    assert.equal(safe.code, code);
+    assert.equal(safe.stage, stage);
+    assert.equal(safe.retryable, true);
+  }
 });
