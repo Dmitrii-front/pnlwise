@@ -89,6 +89,7 @@ export async function createPaddleCheckout(
   if (
     !transaction.id ||
     transaction.subscriptionId !== null ||
+    transaction.discountId !== null ||
     transaction.currencyCode !== PADDLE_CURRENCY ||
     transaction.items.length !== 1 ||
     item?.quantity !== 1 ||

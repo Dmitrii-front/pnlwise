@@ -21,6 +21,7 @@ export interface PaddleTransactionForFulfillment {
   status: string;
   currencyCode: string;
   subscriptionId: string | null;
+  discountId: string | null;
   customData: Record<string, unknown> | null;
   items: Array<{
     quantity: number;
@@ -180,6 +181,7 @@ export async function fulfillPaddlePayment(
     nonNegativeInteger(capturedAttempts[0]?.amount) === total;
   const matches =
     transaction.subscriptionId === null &&
+    transaction.discountId === null &&
     transaction.items.length === 1 &&
     item?.quantity === 1 &&
     item.price?.id === PADDLE_PRICE_ID &&

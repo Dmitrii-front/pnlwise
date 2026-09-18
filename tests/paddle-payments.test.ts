@@ -43,6 +43,7 @@ function completedTransaction(
     status: "completed",
     currencyCode: PADDLE_CURRENCY,
     subscriptionId: null,
+    discountId: null,
     customData: { reportId: "report-1", paymentId },
     items: [
       {
@@ -394,6 +395,20 @@ test("inconsistent tax, captured totals, discounts, and credits fail closed", as
     );
     assert.equal(store.reportPaid, false);
   }
+});
+
+test("an attached Paddle discount fails closed even when its amount is zero", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  assert.deepEqual(
+    await fulfillPaddlePayment(
+      completedTransaction({ discountId: "dsc_unauthorized" }),
+      "evt_discount",
+      store,
+    ),
+    { status: "error", error: "verification_mismatch" },
+  );
+  assert.equal(store.reportPaid, false);
+  assert.equal(store.paymentCompletedEvents.size, 0);
 });
 
 test("wrong report, price, product, quantity, amount, or currency never unlocks", async () => {
