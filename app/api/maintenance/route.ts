@@ -1,15 +1,24 @@
 import { api, json, setting, cleanupExpired, AppError } from "@/lib/server";
-import { maintenanceAuthorized, validMaintenanceSecret } from "@/lib/retention";
+import {
+  invokeRetentionMaintenance,
+  type RetentionDiagnostic,
+} from "@/lib/retention";
+
+function logDiagnostic(entry: RetentionDiagnostic) {
+  console.info(entry.event, entry);
+}
+
 export const POST = (req: Request) =>
   api(async () => {
     const secret = setting("MAINTENANCE_SECRET");
-    if (!validMaintenanceSecret(secret))
-      throw new AppError("Maintenance is not configured.", 503);
-    if (!maintenanceAuthorized(req.headers.get("authorization"), secret))
-      throw new AppError("Not authorized.", 401);
-    let result;
+    let invocation;
     try {
-      result = await cleanupExpired(true);
+      invocation = await invokeRetentionMaintenance(
+        req.headers.get("authorization"),
+        secret,
+        () => cleanupExpired(true),
+        logDiagnostic,
+      );
     } catch {
       throw new AppError(
         "Maintenance could not be completed.",
@@ -22,5 +31,12 @@ export const POST = (req: Request) =>
         },
       );
     }
-    return json({ cleaned: true, ...result });
+    if (invocation.status !== 200)
+      throw new AppError(
+        invocation.status === 503
+          ? "Maintenance is not configured."
+          : "Not authorized.",
+        invocation.status,
+      );
+    return json({ cleaned: true, ...invocation.result });
   });

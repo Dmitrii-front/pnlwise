@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
+  invokeRetentionMaintenance,
   maintenanceAuthorized,
   retentionSql,
   runRetentionCleanup,
+  type RetentionDiagnostic,
   type RetentionStore,
 } from "../lib/retention";
 
@@ -106,7 +108,10 @@ test("retention protects active payable reports and preserves payment records", 
   const database = retentionDatabase();
   insertReport(database, "expired", 500);
   insertReport(database, "active", 500);
+  insertReport(database, "creating", 500);
   insertReport(database, "paid", 500);
+  insertReport(database, "captured-unfulfillable", 500);
+  insertReport(database, "not-expired", 1_500);
   database
     .prepare(
       "INSERT INTO payments(id,report_id,purchase_key,amount,currency,status,created_at) VALUES(?,?,?,?,?,?,0)",
@@ -118,6 +123,33 @@ test("retention protects active payable reports and preserves payment records", 
     )
     .run("payment-paid", "paid", "purchase-paid", 1299, "usd", "paid");
   database
+    .prepare(
+      "INSERT INTO payments(id,report_id,paddle_transaction_id,paddle_event_id,purchase_key,amount,currency,status,failure_reason,created_at) VALUES(?,?,?,?,?,?,?,?,?,0)",
+    )
+    .run(
+      "payment-captured-unfulfillable",
+      "captured-unfulfillable",
+      "txn-retention-audit",
+      "evt-retention-audit",
+      "purchase-captured-unfulfillable",
+      1299,
+      "usd",
+      "captured_unfulfillable",
+      "report_expired",
+    );
+  database
+    .prepare(
+      "INSERT INTO payments(id,report_id,purchase_key,amount,currency,status,created_at) VALUES(?,?,?,?,?,?,0)",
+    )
+    .run(
+      "payment-creating",
+      "creating",
+      "purchase-creating",
+      1299,
+      "usd",
+      "creating",
+    );
+  database
     .prepare("INSERT INTO events(id,name,metadata,created_at) VALUES(?,?,?,?)")
     .run("old-analytics", "report_viewed", "{}", 0);
   database
@@ -128,13 +160,13 @@ test("retention protects active payable reports and preserves payment records", 
     .prepare(retentionSql.deleteExpiredReports)
     .run(1_000, 100);
 
-  assert.equal(result.changes, 2);
+  assert.equal(result.changes, 3);
   assert.deepEqual(
     database
       .prepare("SELECT id FROM reports ORDER BY id")
       .all()
       .map((row) => row.id),
-    ["active"],
+    ["active", "creating", "not-expired"],
   );
   assert.deepEqual(
     database
@@ -142,9 +174,31 @@ test("retention protects active payable reports and preserves payment records", 
       .all()
       .map((row) => ({ ...row })),
     [
-      { id: "payment-active", status: "pending" },
+      {
+        id: "payment-active",
+        status: "pending",
+      },
+      {
+        id: "payment-captured-unfulfillable",
+        status: "captured_unfulfillable",
+      },
+      { id: "payment-creating", status: "creating" },
       { id: "payment-paid", status: "paid" },
     ],
+  );
+  assert.deepEqual(
+    {
+      ...database
+        .prepare(
+          "SELECT paddle_transaction_id,paddle_event_id,failure_reason FROM payments WHERE id='payment-captured-unfulfillable'",
+        )
+        .get(),
+    },
+    {
+      paddle_transaction_id: "txn-retention-audit",
+      paddle_event_id: "evt-retention-audit",
+      failure_reason: "report_expired",
+    },
   );
   database.prepare(retentionSql.deleteExpiredAnalytics).run(1_000);
   assert.deepEqual(
@@ -163,4 +217,92 @@ test("unauthorized maintenance invocation fails closed", () => {
   assert.equal(maintenanceAuthorized(`Bearer ${secret}`, undefined), false);
   assert.equal(maintenanceAuthorized("Bearer too-short", "too-short"), false);
   assert.equal(maintenanceAuthorized(`Bearer ${secret}`, secret), true);
+});
+
+test("authenticated maintenance invocation succeeds with privacy-safe diagnostics", async () => {
+  const secret = "a-secure-maintenance-secret-value-123";
+  const diagnostics: RetentionDiagnostic[] = [];
+  let cleanupRuns = 0;
+  const result = await invokeRetentionMaintenance(
+    `Bearer ${secret}`,
+    secret,
+    async () => {
+      cleanupRuns++;
+      return { removed: 125, batches: 2, remaining: false };
+    },
+    (entry) => diagnostics.push(entry),
+  );
+
+  assert.deepEqual(result, {
+    status: 200,
+    result: { removed: 125, batches: 2, remaining: false },
+  });
+  assert.equal(cleanupRuns, 1);
+  assert.deepEqual(diagnostics, [
+    {
+      event: "retention_cleanup_started",
+      stage: "maintenance.retention",
+    },
+    {
+      event: "retention_cleanup_completed",
+      stage: "maintenance.retention",
+      removed: 125,
+      batches: 2,
+      remaining: false,
+    },
+  ]);
+});
+
+test("maintenance invocation rejects authentication before cleanup", async () => {
+  const secret = "a-secure-maintenance-secret-value-123";
+  let cleanupRuns = 0;
+  const cleanup = async () => {
+    cleanupRuns++;
+    return { removed: 0, batches: 1, remaining: false };
+  };
+  const diagnostic = () =>
+    assert.fail("unauthorized cleanup emitted diagnostics");
+
+  assert.deepEqual(
+    await invokeRetentionMaintenance(null, secret, cleanup, diagnostic),
+    { status: 401 },
+  );
+  assert.deepEqual(
+    await invokeRetentionMaintenance(
+      `Bearer ${secret}`,
+      "invalid",
+      cleanup,
+      diagnostic,
+    ),
+    { status: 503 },
+  );
+  assert.equal(cleanupRuns, 0);
+});
+
+test("maintenance failure emits a stable privacy-safe diagnostic", async () => {
+  const secret = "a-secure-maintenance-secret-value-123";
+  const diagnostics: RetentionDiagnostic[] = [];
+
+  await assert.rejects(
+    invokeRetentionMaintenance(
+      `Bearer ${secret}`,
+      secret,
+      async () => {
+        throw new Error("synthetic failure");
+      },
+      (entry) => diagnostics.push(entry),
+    ),
+    /synthetic failure/,
+  );
+  assert.deepEqual(diagnostics, [
+    {
+      event: "retention_cleanup_started",
+      stage: "maintenance.retention",
+    },
+    {
+      event: "retention_cleanup_failed",
+      stage: "maintenance.retention",
+      code: "RETENTION_MAINTENANCE_FAILED",
+    },
+  ]);
 });

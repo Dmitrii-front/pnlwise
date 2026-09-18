@@ -23,6 +23,24 @@ export interface RetentionResult {
   remaining: boolean;
 }
 
+export type RetentionDiagnostic =
+  | {
+      event: "retention_cleanup_started";
+      stage: "maintenance.retention";
+    }
+  | ({
+      event: "retention_cleanup_completed";
+      stage: "maintenance.retention";
+    } & RetentionResult)
+  | {
+      event: "retention_cleanup_failed";
+      stage: "maintenance.retention";
+      code: "RETENTION_MAINTENANCE_FAILED";
+    };
+
+export type MaintenanceInvocation =
+  { status: 200; result: RetentionResult } | { status: 401 | 503 };
+
 export async function runRetentionCleanup(
   store: RetentionStore,
   now = Date.now(),
@@ -56,4 +74,35 @@ export function maintenanceAuthorized(
   secret: string | undefined,
 ) {
   return validMaintenanceSecret(secret) && authorization === `Bearer ${secret}`;
+}
+
+export async function invokeRetentionMaintenance(
+  authorization: string | null,
+  secret: string | undefined,
+  cleanup: () => Promise<RetentionResult>,
+  diagnostic: (entry: RetentionDiagnostic) => void,
+): Promise<MaintenanceInvocation> {
+  if (!validMaintenanceSecret(secret)) return { status: 503 };
+  if (!maintenanceAuthorized(authorization, secret)) return { status: 401 };
+
+  diagnostic({
+    event: "retention_cleanup_started",
+    stage: "maintenance.retention",
+  });
+  try {
+    const result = await cleanup();
+    diagnostic({
+      event: "retention_cleanup_completed",
+      stage: "maintenance.retention",
+      ...result,
+    });
+    return { status: 200, result };
+  } catch (error) {
+    diagnostic({
+      event: "retention_cleanup_failed",
+      stage: "maintenance.retention",
+      code: "RETENTION_MAINTENANCE_FAILED",
+    });
+    throw error;
+  }
 }
