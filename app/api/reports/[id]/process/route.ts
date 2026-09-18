@@ -14,7 +14,7 @@ import {
   classify,
   detectDuplicates,
   detectTransfers,
-  calculatePnl,
+  calculateDraftPnl,
   needsReview,
   validDate,
 } from "@/lib/domain";
@@ -96,7 +96,7 @@ export const POST = (
         }
         case 5:
           try {
-            calculatePnl(
+            calculateDraftPnl(
               report.transactions,
               report.periodStart,
               report.periodEnd,

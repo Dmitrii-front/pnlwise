@@ -15,6 +15,7 @@ import {
 } from "../lib/parsing";
 import {
   classify,
+  calculateDraftPnl,
   calculatePnl,
   detectDuplicates,
   detectTransfers,
@@ -232,7 +233,12 @@ test("loan proceeds, principal, owners and transfers excluded; no invented inter
     "Loan deposit",
     "Owner contribution",
     "Transfer from savings",
-  ].map((s) => classify(tx(s, "10000")));
+  ].map((s) => {
+    const transaction = classify(tx(s, "10000"));
+    return transaction.categoryId === "transfer"
+      ? setCategory(transaction, "transfer")
+      : transaction;
+  });
   const repayment = classify(tx("Loan payment", "-250"));
   assert.equal(repayment.categoryId, "loan-principal");
   assert.equal(needsReview(repayment), true);
@@ -293,6 +299,14 @@ test("matched transfers require confirmation, block generation, and remain edita
   assert.ok(ts.every((t) => t.isTransfer && t.confidence > 0.9));
   assert.ok(ts.every(needsReview));
   assert.equal(ts.filter(needsReview).length, 2);
+  assert.equal(
+    calculateDraftPnl(ts, "2026-01-01", "2026-12-31"),
+    null,
+  );
+  assert.throws(
+    () => pnl(ts),
+    /Confirm or reclassify suggested transfers/,
+  );
   assert.ok(
     ts.every(
       (t) =>
@@ -310,6 +324,12 @@ test("matched transfers require confirmation, block generation, and remain edita
   assert.equal(corrected.categoryId, "sales");
   assert.equal(corrected.isTransfer, false);
   assert.equal(needsReview(corrected), false);
+  const correctedPair = [
+    setCategory(ts[0], "software"),
+    setCategory(ts[1], "sales"),
+  ];
+  assert.equal(pnl(correctedPair).revenue, 20000);
+  assert.equal(pnl(correctedPair).opex, 20000);
   assert.equal(
     detectTransfers(
       [a, { ...b, rawDescription: "Client payment" }],

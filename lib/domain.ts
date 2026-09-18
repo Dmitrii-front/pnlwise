@@ -348,6 +348,21 @@ export function detectTransfers(ts: Transaction[], statements: Statement[]) {
   }
   return result;
 }
+
+export function hasUnresolvedTransfer(
+  transactions: Transaction[],
+  start: string,
+  end: string,
+) {
+  return transactions.some(
+    (transaction) =>
+      transaction.date >= start &&
+      transaction.date <= end &&
+      transaction.categoryId === "transfer" &&
+      !transaction.userConfirmed,
+  );
+}
+
 export function calculatePnl(
   transactions: Transaction[],
   start: string,
@@ -371,6 +386,10 @@ export function calculatePnl(
         "Invalid transaction data. Review your statement before generating.",
       );
     if (t.date < start || t.date > end) continue;
+    if (t.categoryId === "transfer" && !t.userConfirmed)
+      throw Error(
+        "Confirm or reclassify suggested transfers before calculating the P&L.",
+      );
     inPeriod++;
     const c = categoryById[t.categoryId];
     if (c.group === "excluded" || t.isDuplicate) {
@@ -422,6 +441,16 @@ export function calculatePnl(
     excludedCount,
     inPeriod,
   };
+}
+
+export function calculateDraftPnl(
+  transactions: Transaction[],
+  start: string,
+  end: string,
+) {
+  return hasUnresolvedTransfer(transactions, start, end)
+    ? null
+    : calculatePnl(transactions, start, end);
 }
 export function validDate(s: string) {
   return (

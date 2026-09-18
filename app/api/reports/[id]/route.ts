@@ -1,5 +1,5 @@
 import { api, json, getReport, price } from "@/lib/server";
-import { calculatePnl, needsReview } from "@/lib/domain";
+import { calculateDraftPnl, needsReview } from "@/lib/domain";
 import { paddleSandboxConfigured } from "@/lib/paddle";
 export const GET = (
   req: Request,
@@ -12,7 +12,7 @@ export const GET = (
       report,
       pnl:
         report.periodStart && report.periodEnd
-          ? calculatePnl(
+          ? calculateDraftPnl(
               report.transactions,
               report.periodStart,
               report.periodEnd,
