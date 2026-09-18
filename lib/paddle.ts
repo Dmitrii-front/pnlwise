@@ -5,13 +5,15 @@ import {
   Paddle,
   type TransactionCompletedEvent,
 } from "@paddle/paddle-node-sdk";
-import { AppError, db, price, setting } from "./server";
+import { AppError, db, operationalIdentity, price, setting } from "./server";
 import {
   ensurePaddleCheckout,
   type PaddleCheckoutRecord,
   type PaddleCheckoutStore,
 } from "./paddle-checkout-core";
 import { paddleCheckoutSql, paddleFinalizeSql } from "./paddle-d1";
+import { safeProviderRequestId } from "./operational-diagnostics";
+import { reportOperationalError } from "./monitoring";
 import {
   PADDLE_CURRENCY,
   PADDLE_PRICE_AMOUNT,
@@ -20,10 +22,8 @@ import {
   PADDLE_UNFULFILLABLE_REASON,
   PADDLE_UNFULFILLABLE_STATUS,
   fulfillPaddlePayment,
-  isPaddleNotificationSecret,
   isPaddleSandboxApiKey,
-  isPaddleSandboxClientToken,
-  isPaddleSandboxEnvironment,
+  isPaddleSandboxConfiguration,
   paddleTransactionInput,
   type PaddlePaymentStore,
 } from "./paddle-payment-core";
@@ -42,15 +42,16 @@ function sandboxPaddle() {
 }
 
 export function paddleSandboxConfigured() {
-  return (
-    isPaddleSandboxApiKey(setting("PADDLE_API_KEY")) &&
-    isPaddleSandboxClientToken(setting("NEXT_PUBLIC_PADDLE_CLIENT_TOKEN")) &&
-    isPaddleSandboxEnvironment(setting("PADDLE_ENVIRONMENT")) &&
-    isPaddleSandboxEnvironment(setting("NEXT_PUBLIC_PADDLE_ENV")) &&
-    isPaddleNotificationSecret(setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET")) &&
-    price() === PADDLE_PRICE_AMOUNT &&
-    !!setting("APP_ORIGIN")
-  );
+  return isPaddleSandboxConfiguration({
+    apiKey: setting("PADDLE_API_KEY"),
+    clientToken: setting("NEXT_PUBLIC_PADDLE_CLIENT_TOKEN"),
+    environment: setting("PADDLE_ENVIRONMENT"),
+    publicEnvironment: setting("NEXT_PUBLIC_PADDLE_ENV"),
+    notificationSecret: setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET"),
+    identityConfigured: operationalIdentity().configured,
+    amount: price(),
+    origin: setting("APP_ORIGIN"),
+  });
 }
 
 export async function createPaddleCheckout(
@@ -63,12 +64,27 @@ export async function createPaddleCheckout(
       "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
       503,
     );
-  const transaction = await sandboxPaddle().transactions.create({
-    ...paddleTransactionInput(reportId, paymentId),
-    checkout: {
-      url: `${origin}/checkout?report=${encodeURIComponent(reportId)}`,
-    },
-  });
+  let transaction;
+  try {
+    transaction = await sandboxPaddle().transactions.create({
+      ...paddleTransactionInput(reportId, paymentId),
+      checkout: {
+        url: `${origin}/checkout?report=${encodeURIComponent(reportId)}`,
+      },
+    });
+  } catch (error) {
+    throw new AppError(
+      "Checkout is temporarily unavailable. Your report is saved. Please try again.",
+      502,
+      undefined,
+      {
+        code: "PADDLE_CHECKOUT_CREATE_FAILED",
+        stage: "paddle.checkout.create",
+        providerRequestId: safeProviderRequestId(error),
+        alertable: true,
+      },
+    );
+  }
   const item = transaction.items[0];
   if (
     !transaction.id ||
@@ -88,6 +104,12 @@ export async function createPaddleCheckout(
     throw new AppError(
       "Checkout is temporarily unavailable. Your report is saved. Please try again.",
       502,
+      undefined,
+      {
+        code: "PADDLE_CHECKOUT_RESPONSE_INVALID",
+        stage: "paddle.checkout.validate",
+        alertable: true,
+      },
     );
   return transaction;
 }
@@ -219,13 +241,51 @@ export async function fulfillPaddleTransaction(
 ) {
   if (event.eventType !== EventName.TransactionCompleted)
     return { status: "ignored" as const };
-  const result = await fulfillPaddlePayment(
-    event.data,
-    event.eventId,
-    d1PaddlePaymentStore,
-  );
+  let result;
+  try {
+    result = await fulfillPaddlePayment(
+      event.data,
+      event.eventId,
+      d1PaddlePaymentStore,
+    );
+  } catch {
+    throw new AppError(
+      "Paddle payment fulfillment is temporarily unavailable.",
+      503,
+      undefined,
+      {
+        code: "D1_FULFILLMENT_FAILED",
+        stage: "paddle.fulfillment.storage",
+        alertable: true,
+      },
+    );
+  }
+  if (result.status === "unfulfillable")
+    await reportOperationalError({
+      code: "PADDLE_FULFILLMENT_UNFULFILLABLE",
+      stage: "paddle.fulfillment.report",
+      alertable: true,
+    });
   if (result.status !== "error") return result;
   if (result.error === "not_registered")
-    throw new AppError("Paddle transaction is not registered yet.", 409);
-  throw new AppError("Paddle payment verification did not match.", 400);
+    throw new AppError(
+      "Paddle transaction is not registered yet.",
+      409,
+      undefined,
+      {
+        code: "PADDLE_FULFILLMENT_NOT_REGISTERED",
+        stage: "paddle.fulfillment.association",
+        alertable: true,
+      },
+    );
+  throw new AppError(
+    "Paddle payment verification did not match.",
+    400,
+    undefined,
+    {
+      code: "PADDLE_FULFILLMENT_VALIDATION_FAILED",
+      stage: "paddle.fulfillment.validation",
+      alertable: true,
+    },
+  );
 }

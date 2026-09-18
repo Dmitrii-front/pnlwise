@@ -104,6 +104,10 @@ export const POST = (req: Request) =>
           e.message,
           422,
           e.headers ? { headers: e.headers } : undefined,
+          {
+            code: "PARSER_REJECTED_STATEMENT",
+            stage: `parser.${ext}`,
+          },
         );
       throw e;
     }

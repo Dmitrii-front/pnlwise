@@ -1,14 +1,25 @@
-import { reportErrorType } from "./monitoring";
+import {
+  operationalErrorWasReported,
+  reportOperationalError,
+} from "./monitoring";
+import type { OperationalDiagnostic } from "./operational-diagnostics";
 import { accountUser } from "./auth";
 import { config } from "./config";
 import { env } from "cloudflare:workers";
 import { cookies } from "next/headers";
 import { hasUnresolvedRefund, type Report } from "./domain";
+import { readOperationalIdentity } from "./operational-identity";
+import {
+  retentionSql,
+  runRetentionCleanup,
+  type RetentionStore,
+} from "./retention";
 export class AppError extends Error {
   constructor(
     message: string,
     public status = 400,
     public details?: unknown,
+    public diagnostic?: OperationalDiagnostic,
   ) {
     super(message);
   }
@@ -18,6 +29,8 @@ export function db() {
     throw new AppError(
       "Report storage is temporarily unavailable. Please try again shortly.",
       503,
+      undefined,
+      { code: "D1_BINDING_MISSING", stage: "d1.binding", alertable: true },
     );
   return env.DB;
 }
@@ -26,6 +39,9 @@ export function setting(key: string) {
     (env as unknown as Record<string, string | undefined>)[key] ||
     process.env[key]
   );
+}
+export function operationalIdentity() {
+  return readOperationalIdentity(setting);
 }
 export function price() {
   const n = config.priceCents;
@@ -153,16 +169,19 @@ export async function api(fn: () => Promise<Response>) {
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof AppError)
+    if (error instanceof AppError) {
+      if (error.diagnostic && !operationalErrorWasReported(error))
+        await reportOperationalError(error.diagnostic, error);
       return json(
         { error: error.message, details: error.details },
         error.status,
       );
-    await reportErrorType(error instanceof Error ? error.name : "UnknownError");
-    console.error(
-      "request_failed",
-      error instanceof Error ? error.name : "UnknownError",
-    );
+    }
+    if (!operationalErrorWasReported(error))
+      await reportOperationalError(
+        { code: "REQUEST_FAILED", stage: "api.request", alertable: true },
+        error,
+      );
     await track("server_error", {
       kind: error instanceof Error ? error.name : "UnknownError",
     }).catch(() => {});
@@ -198,6 +217,11 @@ export async function track(
     "reviewCount",
     "format",
     "kind",
+    "removed",
+    "batches",
+    "remaining",
+    "code",
+    "stage",
   ];
   const safe = Object.fromEntries(
     Object.entries(metadata)
@@ -214,16 +238,37 @@ export async function track(
     .run();
 }
 
-export async function cleanupExpired() {
-  await db().batch([
-    db()
-      .prepare(
-        "DELETE FROM reports WHERE id IN (SELECT id FROM reports WHERE expires_at<? LIMIT 100)",
-      )
-      .bind(Date.now()),
-    db().prepare("DELETE FROM rate_limits WHERE expires_at<?").bind(Date.now()),
-    db()
-      .prepare("DELETE FROM events WHERE created_at<?")
-      .bind(Date.now() - 90 * 86400000),
-  ]);
+const retentionStore: RetentionStore = {
+  async deleteExpiredReports(now, limit) {
+    const result = await db()
+      .prepare(retentionSql.deleteExpiredReports)
+      .bind(now, limit)
+      .run();
+    return result.meta.changes || 0;
+  },
+  async hasExpiredReports(now) {
+    return !!(await db()
+      .prepare(retentionSql.hasExpiredReports)
+      .bind(now)
+      .first());
+  },
+  async cleanupAuxiliary(now) {
+    await db().batch([
+      db().prepare(retentionSql.deleteExpiredRateLimits).bind(now),
+      db()
+        .prepare(retentionSql.deleteExpiredAnalytics)
+        .bind(now - 90 * 86400000),
+    ]);
+  },
+};
+
+export async function cleanupExpired(recordResult = false) {
+  const result = await runRetentionCleanup(retentionStore);
+  if (recordResult)
+    await track("maintenance_cleanup", {
+      removed: result.removed,
+      batches: result.batches,
+      remaining: result.remaining,
+    });
+  return result;
 }

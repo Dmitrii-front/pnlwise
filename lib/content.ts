@@ -201,7 +201,7 @@ export const contentPages: Record<string, ContentPage> = {
     title: "What Is a Profit & Loss Statement? A Practical Guide",
     description:
       "Learn what a P&L shows, how revenue and expenses relate to profit, and what a statement-based cash report can and cannot tell you.",
-    eyebrow: "THE CLEARLEDGER GUIDE",
+    eyebrow: "THE PNLWISE GUIDE",
     heading: "What is a Profit & Loss statement?",
     intro:
       "A Profit & Loss statement summarizes a business’s income and expenses over a specific period. It is also called an income statement. The goal is to see how much was earned and how much remained after costs.",
@@ -241,7 +241,7 @@ export const contentPages: Record<string, ContentPage> = {
     title: "How to Create a P&L from Bank Statements",
     description:
       "A step-by-step guide to preparing a statement-based P&L: gather accounts, check transfers, categorize transactions, review totals, and save your report.",
-    eyebrow: "THE CLEARLEDGER GUIDE",
+    eyebrow: "THE PNLWISE GUIDE",
     heading: "How to create a P&L from bank statements.",
     intro:
       "Start with complete bank activity, separate business transactions from other money movements, and review the categories. Here is a practical process for getting an estimated cash-basis report.",

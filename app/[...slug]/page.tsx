@@ -51,7 +51,7 @@ export default async function Page({
             <span>{page.guide ? "Guides" : "P&L generator"}</span>
           </nav>
           <span className="eyebrow">
-            {page.eyebrow.replace("CLEARLEDGER", config.name.toUpperCase())}
+            {page.eyebrow.replace("PNLWISE", config.name.toUpperCase())}
           </span>
           <h1>{page.heading}</h1>
           <p>{page.intro}</p>
@@ -117,9 +117,7 @@ export default async function Page({
                 Create a P&L from bank statements
               </a>
               <a href="/bank-statement-to-pnl">Bank statement to P&L</a>
-              <a href="/profit-and-loss-generator">
-                Profit and loss generator
-              </a>
+              <a href="/profit-and-loss-generator">Profit and loss generator</a>
               <a href="/security">How we handle your data</a>
             </div>
           </aside>

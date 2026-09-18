@@ -1,6 +1,8 @@
 import type { Transaction } from "./domain";
 import { categorizeTransactionsWithOpenAI } from "./ai-classification";
 import { setting } from "./server";
+import { reportOperationalError } from "./monitoring";
+import { safeProviderRequestId } from "./operational-diagnostics";
 
 const disabledWarning =
   "AI categorization is not enabled. Merchant rules were applied; please review the remaining items.";
@@ -24,7 +26,15 @@ export async function aiCategorize(
         model,
       }),
     };
-  } catch {
+  } catch (error) {
+    await reportOperationalError(
+      {
+        code: "OPENAI_CATEGORIZATION_FALLBACK",
+        stage: "openai.categorization",
+        providerRequestId: safeProviderRequestId(error),
+      },
+      error,
+    );
     return { transactions, warning: failureWarning };
   }
 }

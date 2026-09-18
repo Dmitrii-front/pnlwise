@@ -24,11 +24,11 @@ const basePayment: PaymentRecord = {
 const paidSession = (
   overrides: Partial<StripeCheckoutSession> = {},
 ): StripeCheckoutSession => ({
-  id: "cs_test_clearledger",
+  id: "cs_test_pnlwise",
   payment_status: "paid",
   amount_total: 1299,
   currency: "usd",
-  payment_intent: "pi_test_clearledger",
+  payment_intent: "pi_test_pnlwise",
   metadata: { reportId: "report-1", paymentId },
   ...overrides,
 });
@@ -41,7 +41,7 @@ class MemoryPaymentStore implements PaymentStore {
 
   async findByStripeSession(sessionId: string) {
     await Promise.resolve();
-    return sessionId === "cs_test_clearledger" ? { ...this.payment } : null;
+    return sessionId === "cs_test_pnlwise" ? { ...this.payment } : null;
   }
 
   async markPaidOnce(payment: PaymentRecord, paymentIntentId: string | null) {
@@ -51,7 +51,7 @@ class MemoryPaymentStore implements PaymentStore {
     this.reportPaid = true;
     this.transitionCount++;
     this.paymentCompletedEvents.add(`payment_completed:${payment.id}`);
-    assert.equal(paymentIntentId, "pi_test_clearledger");
+    assert.equal(paymentIntentId, "pi_test_pnlwise");
     return true;
   }
 }
@@ -93,8 +93,8 @@ test("Checkout uses the server-controlled one-time $12.99 USD price", () => {
     reportId: "report-1",
     paymentId,
     amount: 1299,
-    origin: "https://clearledger.example",
-    productName: "Clearledger Profit & Loss Report",
+    origin: "https://pnlwise.example",
+    productName: "Pnlwise Profit & Loss Report",
   });
   assert.equal(form.get("mode"), "payment");
   assert.equal(form.get("line_items[0][price_data][currency]"), "usd");
@@ -177,8 +177,14 @@ test("wrong amount, currency, or metadata never marks a payment paid", async () 
 
 test("sequential duplicate webhooks have no repeated side effects", async () => {
   const store = new MemoryPaymentStore();
-  assert.equal((await fulfillPayment(paidSession(), store)).status, "fulfilled");
-  assert.equal((await fulfillPayment(paidSession(), store)).status, "duplicate");
+  assert.equal(
+    (await fulfillPayment(paidSession(), store)).status,
+    "fulfilled",
+  );
+  assert.equal(
+    (await fulfillPayment(paidSession(), store)).status,
+    "duplicate",
+  );
   assert.equal(store.transitionCount, 1);
   assert.equal(store.paymentCompletedEvents.size, 1);
 });
@@ -189,10 +195,10 @@ test("concurrent duplicate webhooks atomically fulfill only once", async () => {
     fulfillPayment(paidSession(), store),
     fulfillPayment(paidSession(), store),
   ]);
-  assert.deepEqual(
-    results.map((result) => result.status).sort(),
-    ["duplicate", "fulfilled"],
-  );
+  assert.deepEqual(results.map((result) => result.status).sort(), [
+    "duplicate",
+    "fulfilled",
+  ]);
   assert.equal(store.transitionCount, 1);
   assert.equal(store.paymentCompletedEvents.size, 1);
   assert.equal(store.reportPaid, true);

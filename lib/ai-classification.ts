@@ -154,8 +154,15 @@ export async function categorizeTransactionsWithOpenAI({
     }),
   });
 
-  if (!response.ok)
-    throw new Error(`OpenAI classification failed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(
+      `OpenAI classification failed (${response.status}).`,
+    );
+    Object.assign(error, {
+      requestId: response.headers.get("x-request-id") || undefined,
+    });
+    throw error;
+  }
 
   const data = (await response.json()) as {
     status?: string;

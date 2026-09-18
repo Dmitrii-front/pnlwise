@@ -62,7 +62,7 @@ export default function Home() {
             <div className="report-decoration" aria-hidden="true" />
             <article className="sample-paper">
               <div className="paper-top">
-                <span className="paper-logo">c/</span>
+                <span className="paper-logo">p/</span>
                 <span>
                   SAMPLE REPORT <span className="small-dot" />
                 </span>

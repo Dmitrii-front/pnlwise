@@ -1,6 +1,20 @@
 import { env } from "cloudflare:workers";
-/** A minimal Sentry envelope with no descriptions, request bodies, user IDs, or stack values. */
-export async function reportErrorType(errorType: string) {
+import {
+  emitOperationalDiagnostic,
+  safeOperationalDiagnostic,
+  type OperationalDiagnostic,
+} from "./operational-diagnostics";
+
+const reportedErrors = new WeakSet<object>();
+
+/** Emits structured diagnostics without exception messages, stacks, request bodies, or user data. */
+export async function reportOperationalError(
+  diagnostic: OperationalDiagnostic,
+  error?: unknown,
+) {
+  const safe = safeOperationalDiagnostic(diagnostic);
+  emitOperationalDiagnostic(diagnostic);
+  if (error && typeof error === "object") reportedErrors.add(error);
   const dsn =
     (env as unknown as Record<string, string | undefined>).SENTRY_DSN ||
     process.env.SENTRY_DSN;
@@ -19,11 +33,19 @@ export async function reportErrorType(errorType: string) {
         timestamp: Date.now() / 1000,
         level: "error",
         platform: "javascript",
-        message: "Application request failed",
+        message: `${safe.code} at ${safe.stage}`,
+        tags: {
+          error_code: safe.code,
+          operational_stage: safe.stage,
+          alertable: String(safe.alertable),
+        },
+        extra: safe.provider_request_id
+          ? { provider_request_id: safe.provider_request_id }
+          : undefined,
         exception: {
           values: [
             {
-              type: errorType.slice(0, 60),
+              type: safe.code,
               value: "Details redacted to protect financial data",
             },
           ],
@@ -44,4 +66,8 @@ export async function reportErrorType(errorType: string) {
   } catch {
     /* Error reporting must not break report access. */
   }
+}
+
+export function operationalErrorWasReported(error: unknown) {
+  return !!error && typeof error === "object" && reportedErrors.has(error);
 }

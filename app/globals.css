@@ -1225,6 +1225,12 @@ summary:focus-visible {
   font-size: 11px;
   color: #808b79;
 }
+.field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 16px;
+}
 .field [data-slot="select-trigger"] {
   width: 100%;
   height: 46px;

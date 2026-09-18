@@ -1,6 +1,186 @@
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 const fixture = resolve("tests/fixtures/business.csv");
+
+test("upload preferences survive reload without persisting files or financial data", async ({
+  page,
+}) => {
+  await page.goto("/generate");
+  await expect(
+    page.getByRole("button", { name: "Analyze statements" }),
+  ).toBeEnabled();
+
+  const businessGrid = page.locator(".form-grid").first();
+  await expect(businessGrid.locator(".field-label")).toHaveCount(2);
+  await expect(businessGrid.locator(".field-label").nth(1)).toHaveText(
+    "Business name · optional",
+  );
+  const typeBox = await page
+    .getByRole("combobox", { name: "Business type", exact: true })
+    .boundingBox();
+  const nameBox = await page
+    .getByPlaceholder("Your business name")
+    .boundingBox();
+  expect(typeBox).not.toBeNull();
+  expect(nameBox).not.toBeNull();
+  expect(Math.abs(typeBox!.y - nameBox!.y)).toBeLessThanOrEqual(2);
+
+  await page
+    .getByRole("combobox", { name: "Business type", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Consulting", exact: true }).click();
+  await page.getByPlaceholder("Your business name").fill("Reload Studio");
+  await page.getByLabel("Period start").fill("2026-01-01");
+  await page.getByLabel("Period end").fill("2026-12-31");
+  await page.getByRole("combobox", { name: "All business accounts" }).click();
+  await page
+    .getByRole("option", { name: "No, I have more statements" })
+    .click();
+  await page
+    .getByPlaceholder("e.g. Business checking 1234")
+    .fill("Operating 1234");
+  await page.getByLabel("Upload bank statements").setInputFiles(fixture);
+
+  const storedBeforeReload = await page.evaluate(() =>
+    Object.fromEntries(Object.entries(localStorage)),
+  );
+  expect(Object.keys(storedBeforeReload)).toEqual(["pnlwise:upload-form:v1"]);
+  expect(JSON.stringify(storedBeforeReload)).not.toContain("business.csv");
+  for (const forbidden of [
+    "reportId",
+    "transaction",
+    "merchant",
+    "paddle",
+    "secret",
+  ]) {
+    expect(JSON.stringify(storedBeforeReload).toLowerCase()).not.toContain(
+      forbidden.toLowerCase(),
+    );
+  }
+
+  await page.reload();
+  await expect(
+    page.getByRole("combobox", { name: "Business type", exact: true }),
+  ).toHaveText("Consulting");
+  await expect(page.getByPlaceholder("Your business name")).toHaveValue(
+    "Reload Studio",
+  );
+  await expect(page.getByLabel("Period start")).toHaveValue("2026-01-01");
+  await expect(page.getByLabel("Period end")).toHaveValue("2026-12-31");
+  await expect(
+    page.getByRole("combobox", { name: "All business accounts" }),
+  ).toHaveText("No, I have more statements");
+  await expect(
+    page.getByPlaceholder("e.g. Business checking 1234"),
+  ).toHaveValue("Operating 1234");
+  await expect(page.getByText("business.csv", { exact: true })).toHaveCount(0);
+  await expect(
+    page.locator("#pnlwise-business-name-history option"),
+  ).toHaveCount(0);
+});
+
+test("malformed upload preferences fail safely", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pnlwise:upload-form:v1", "{not-json");
+    localStorage.setItem("pnlwise:business-name-history:v1", "not-json");
+  });
+  await page.goto("/generate");
+  await expect(
+    page.getByRole("heading", { name: "Start with your statements." }),
+  ).toBeVisible();
+  await expect(page.getByPlaceholder("Your business name")).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Analyze statements" }),
+  ).toBeEnabled();
+});
+
+test("created draft stays in the URL, recovers without duplication, and remains session-owned", async ({
+  page,
+  browser,
+}) => {
+  let reportCreates = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (request.method() === "POST" && url.pathname === "/api/reports")
+      reportCreates++;
+  });
+
+  await page.goto("/generate");
+  await page.getByLabel("Upload bank statements").setInputFiles(fixture);
+  await page
+    .getByRole("combobox", { name: "Business type", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Consulting", exact: true }).click();
+  await page
+    .getByPlaceholder("Your business name")
+    .fill("Draft Recovery Studio");
+  await page.getByRole("button", { name: "Analyze statements" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Match your statement columns" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/generate\?report=[0-9a-f-]+$/);
+  const reportId = new URL(page.url()).searchParams.get("report")!;
+  expect(reportCreates).toBe(1);
+
+  await expect(
+    page.locator(
+      '#pnlwise-business-name-history option[value="Draft Recovery Studio"]',
+    ),
+  ).toHaveCount(1);
+  await page.reload();
+  await expect(page).toHaveURL(new RegExp(`/generate\\?report=${reportId}$`));
+  await expect(page.getByPlaceholder("Your business name")).toHaveValue(
+    "Draft Recovery Studio",
+  );
+  await expect(page.getByPlaceholder("Your business name")).toBeDisabled();
+  expect(reportCreates).toBe(1);
+
+  await page.getByLabel("Upload bank statements").setInputFiles(fixture);
+  await page.getByRole("button", { name: "Analyze statements" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Match your statement columns" }),
+  ).toBeVisible();
+  expect(reportCreates).toBe(1);
+  await expect(
+    page.locator(
+      '#pnlwise-business-name-history option[value="Draft Recovery Studio"]',
+    ),
+  ).toHaveCount(1);
+
+  const stranger = await browser.newContext({
+    baseURL: new URL(page.url()).origin,
+  });
+  const strangerPage = await stranger.newPage();
+  await strangerPage.goto(`/generate?report=${reportId}`);
+  await expect(strangerPage.getByRole("alert")).toContainText(
+    "saved draft is unavailable",
+  );
+  await expect(strangerPage).toHaveURL(/\/generate$/);
+  await stranger.close();
+
+  await page.route("**/api/reports/expired-draft", (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "This report is unavailable in this browser or has expired.",
+      }),
+    }),
+  );
+  await page.goto("/generate?report=expired-draft");
+  await expect(page.getByRole("alert")).toContainText(
+    "saved draft is unavailable",
+  );
+  await expect(page).toHaveURL(/\/generate$/);
+  await page.unroute("**/api/reports/expired-draft");
+
+  await page.goto("/generate?report=not-a-report-id");
+  await expect(page.getByRole("alert")).toContainText(
+    "saved draft is unavailable",
+  );
+  await expect(page).toHaveURL(/\/generate$/);
+});
+
 test("anonymous upload, review, loan split, P&L, unpaid export, and delete", async ({
   page,
   request,

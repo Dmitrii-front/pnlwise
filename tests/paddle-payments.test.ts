@@ -14,6 +14,7 @@ import {
   isPaddleNotificationSecret,
   isPaddleSandboxApiKey,
   isPaddleSandboxClientToken,
+  isPaddleSandboxConfiguration,
   isPaddleSandboxEnvironment,
   paddleTransactionInput,
   paddlePurchaseKey,
@@ -38,7 +39,7 @@ function completedTransaction(
   overrides: Partial<PaddleTransactionForFulfillment> = {},
 ): PaddleTransactionForFulfillment {
   return {
-    id: "txn_01m2paddleclearledger000000",
+    id: "txn_01m2paddlepnlwise000000000",
     status: "completed",
     currencyCode: PADDLE_CURRENCY,
     subscriptionId: null,
@@ -95,7 +96,7 @@ class MemoryPaddlePaymentStore implements PaddlePaymentStore {
 
   async findByPaddleTransaction(transactionId: string) {
     await Promise.resolve();
-    return transactionId === "txn_01m2paddleclearledger000000"
+    return transactionId === "txn_01m2paddlepnlwise000000000"
       ? { ...this.payment }
       : null;
   }
@@ -106,7 +107,7 @@ class MemoryPaddlePaymentStore implements PaddlePaymentStore {
     eventId: string,
   ) {
     await Promise.resolve();
-    assert.equal(transactionId, "txn_01m2paddleclearledger000000");
+    assert.equal(transactionId, "txn_01m2paddlepnlwise000000000");
     assert.match(eventId, /^evt_/);
     if (this.payment.status === "paid") return "duplicate" as const;
     if (this.payment.status === PADDLE_UNFULFILLABLE_STATUS)
@@ -181,6 +182,24 @@ test("Sandbox configuration rejects Live credentials", () => {
   assert.equal(isPaddleSandboxEnvironment("sandbox"), true);
   assert.equal(isPaddleSandboxEnvironment("production"), false);
   assert.equal(isPaddleSandboxEnvironment("live"), false);
+});
+
+test("Sandbox checkout configuration requires verified operational identity", () => {
+  const configured = {
+    apiKey: "pdl_sdbx_apikey_example",
+    clientToken: "test_example",
+    environment: "sandbox",
+    publicEnvironment: "sandbox",
+    notificationSecret,
+    identityConfigured: true,
+    amount: PADDLE_PRICE_AMOUNT,
+    origin: "https://example.com",
+  };
+  assert.equal(isPaddleSandboxConfiguration(configured), true);
+  assert.equal(
+    isPaddleSandboxConfiguration({ ...configured, identityConfigured: false }),
+    false,
+  );
 });
 
 test("notification secret validation accepts opaque Paddle signing material", () => {

@@ -1,4 +1,4 @@
-# Clearledger
+# Pnlwise
 
 Bank statements → review → deterministic P&L preview → one-time Paddle Sandbox payment → PDF, XLSX, and CSV.
 
@@ -34,11 +34,9 @@ Browser tests use an installed Google Chrome. `tests/fixtures/business.csv` cont
 
 ## Product and legal configuration
 
-`lib/config.ts` is the single source of public defaults. `.env.example` lists build-time `NEXT_PUBLIC_*` overrides and server-only settings. Change service name, operator, support address, site URL, price, retention days, and confidence thresholds there. Rebuild after changing public settings so visible prices and server checkout amounts remain identical.
+`lib/config.ts` is the single source of public product defaults. `.env.example` lists build-time `NEXT_PUBLIC_*` overrides and server-only settings. Change service name, site URL, price, retention days, and confidence thresholds there. Rebuild after changing public settings so visible prices and server checkout amounts remain identical.
 
-Working values: **Clearledger**, operator **Clearledger**, **support@example.invalid**. These are not a claim that the domain or mailbox is registered. Replace the working identity and verify the mailbox before public launch.
-
-`LEGAL_OPERATOR_NAME` and `SUPPORT_EMAIL` optionally override the legal-page defaults at runtime. Secrets must never use the `NEXT_PUBLIC_` prefix, enter Git, or appear in client code.
+`LEGAL_OPERATOR_NAME` and `SUPPORT_EMAIL` are required runtime settings for payment-enabled environments. They must identify the verified service operator and a monitored support mailbox. Missing or invalid values disable checkout and legal pages show a noncommercial configuration notice. Secrets must never use the `NEXT_PUBLIC_` prefix, enter Git, or appear in client code.
 
 ## Parsing and review
 
@@ -91,7 +89,7 @@ Configure production alerting against Worker errors/event counts before launch. 
 - Same-origin mutation checks, prepared statements, private/no-store API responses, and server-side export authorization.
 - Raw statements are discarded immediately after reading, including failed requests.
 - Anonymous and linked report access expires after the configured period (30 days by default).
-- Expired records are deleted in bounded batches on report creation. For timely deletion during idle periods, schedule an authenticated POST to `/api/maintenance` using `MAINTENANCE_SECRET`. Analytics older than 90 days and expired rate-limit buckets are cleaned there too.
+- Expired records are deleted in bounded batches on report creation. For timely deletion during idle periods, schedule an authenticated POST to `/api/maintenance` using `MAINTENANCE_SECRET`. Ordinary analytics older than 90 days and expired rate-limit buckets are cleaned there too; payment completion audit events are preserved.
 - Delete My Data removes reports, normalized transactions, statements, and merchant rules in the current session and linked account. Minimal payment records remain separate.
 - Deletion does not promise instantaneous erasure of infrastructure backups. Provider backup policies and the final legal retention policy need review before launch.
 

@@ -4,6 +4,7 @@ import {
   json,
   guardOrigin,
   getReport,
+  operationalIdentity,
   price,
   setting,
   AppError,
@@ -36,6 +37,17 @@ export const POST = (req: Request) =>
         "Review your transactions and generate the P&L before checking out.",
       );
     const origin = setting("APP_ORIGIN");
+    if (!operationalIdentity().configured)
+      throw new AppError(
+        "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
+        503,
+        undefined,
+        {
+          code: "OPERATIONAL_IDENTITY_MISSING",
+          stage: "paddle.checkout.configuration",
+          alertable: true,
+        },
+      );
     if (!origin || !paddleSandboxConfigured())
       throw new AppError(
         "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
@@ -49,7 +61,22 @@ export const POST = (req: Request) =>
     const amount = price();
     if (amount !== PADDLE_PRICE_AMOUNT)
       throw new AppError("Checkout is not configured correctly.", 503);
-    const checkout = await getOrCreatePaddleCheckout(report.id, amount, origin);
+    let checkout;
+    try {
+      checkout = await getOrCreatePaddleCheckout(report.id, amount, origin);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError(
+        "Checkout is temporarily unavailable. Your report is saved. Please try again.",
+        503,
+        undefined,
+        {
+          code: "D1_CHECKOUT_FAILED",
+          stage: "paddle.checkout.storage",
+          alertable: true,
+        },
+      );
+    }
     if (checkout.status === "paid")
       return json({ url: `/report/${report.id}` });
     if (checkout.status !== "ready")

@@ -185,7 +185,7 @@ export default function ReportView({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `clearledger-${report?.periodStart}-${report?.periodEnd}.${format}`;
+      a.download = `pnlwise-${report?.periodStart}-${report?.periodEnd}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();

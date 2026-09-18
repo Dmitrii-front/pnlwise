@@ -1,6 +1,6 @@
 import { config } from "@/lib/config";
 import { Header, Footer, disclaimer } from "@/components/product/shared";
-import { setting } from "@/lib/server";
+import { operationalIdentity } from "@/lib/server";
 
 export const metadata = {
   title: "Refund Policy",
@@ -9,8 +9,7 @@ export const metadata = {
 };
 
 export default function Page() {
-  const contact = setting("SUPPORT_EMAIL") || config.supportEmail;
-  const operator = setting("LEGAL_OPERATOR_NAME") || config.operator;
+  const identity = operationalIdentity();
   const price = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -23,6 +22,12 @@ export default function Page() {
         <span className="eyebrow">REFUNDS</span>
         <h1>Refund Policy</h1>
         <p className="legal-date">Last updated September 16, 2026</p>
+        {!identity.configured && (
+          <p className="info-box">
+            Payment and public support are unavailable until the service
+            operator and support contact are configured.
+          </p>
+        )}
         <section>
           <h2>One-time digital purchase</h2>
           <p>
@@ -35,22 +40,35 @@ export default function Page() {
         </section>
         <section>
           <h2>When to contact support</h2>
-          <p>
-            Contact <a href={`mailto:${contact}`}>{contact}</a> if you were
-            charged more than once, experienced a payment error, cannot access
-            your purchased exports, or a material technical failure prevented us
-            from delivering the purchased report. Include your payment reference
-            and a brief description of the issue. Do not email bank statements
-            or card details.
-          </p>
+          {identity.configured ? (
+            <p>
+              Contact{" "}
+              <a href={`mailto:${identity.supportEmail}`}>
+                {identity.supportEmail}
+              </a>{" "}
+              if you were charged more than once, experienced a payment error,
+              cannot access your purchased exports, or a material technical
+              failure prevented us from delivering the purchased report. Include
+              your payment reference and a brief description of the issue. Do
+              not email bank statements or card details.
+            </p>
+          ) : (
+            <p>
+              Public support contact details are pending operational
+              configuration. Payment remains unavailable until they are set.
+            </p>
+          )}
         </section>
         <section>
           <h2>How refund requests are handled</h2>
           <p>
-            Paddle is our Merchant of Record and payment provider. {operator}{" "}
-            and Paddle review eligible requests under this policy, Paddle&apos;s
-            obligations, and applicable law. Approved refunds are returned
-            through the original payment method where possible.
+            Paddle is our Merchant of Record and payment provider.{" "}
+            {identity.configured
+              ? `${identity.operator} and Paddle review eligible requests`
+              : "The configured service operator and Paddle review eligible requests"}{" "}
+            under this policy, Paddle&apos;s obligations, and applicable law.
+            Approved refunds are returned through the original payment method
+            where possible.
           </p>
           <p>
             Because each report is a digital product generated from your

@@ -1,9 +1,9 @@
-import { EventName, type TransactionCompletedEvent } from "@paddle/paddle-node-sdk";
-import { api, json, setting, AppError } from "@/lib/server";
 import {
-  fulfillPaddleTransaction,
-  paddleWebhookVerifier,
-} from "@/lib/paddle";
+  EventName,
+  type TransactionCompletedEvent,
+} from "@paddle/paddle-node-sdk";
+import { api, json, setting, AppError } from "@/lib/server";
+import { fulfillPaddleTransaction, paddleWebhookVerifier } from "@/lib/paddle";
 import {
   isPaddleNotificationSecret,
   unmarshalPaddleWebhook,
@@ -13,12 +13,20 @@ export const POST = (req: Request) =>
   api(async () => {
     const secret = setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET");
     if (!isPaddleNotificationSecret(secret))
-      throw new AppError("Paddle Sandbox webhook is not configured.", 503);
+      throw new AppError(
+        "Paddle Sandbox webhook is not configured.",
+        503,
+        undefined,
+        {
+          code: "PADDLE_WEBHOOK_CONFIG_INVALID",
+          stage: "paddle.webhook.configuration",
+          alertable: true,
+        },
+      );
     if (Number(req.headers.get("content-length")) > 100000)
       throw new AppError("Payload too large.", 413);
     const payload = await req.text();
-    if (payload.length > 100000)
-      throw new AppError("Payload too large.", 413);
+    if (payload.length > 100000) throw new AppError("Payload too large.", 413);
     try {
       const event = await unmarshalPaddleWebhook(
         payload,
@@ -30,7 +38,11 @@ export const POST = (req: Request) =>
         await fulfillPaddleTransaction(event as TransactionCompletedEvent);
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw new AppError("Invalid Paddle webhook.", 400);
+      throw new AppError("Invalid Paddle webhook.", 400, undefined, {
+        code: "PADDLE_WEBHOOK_SIGNATURE_INVALID",
+        stage: "paddle.webhook.verification",
+        alertable: true,
+      });
     }
     return json({ received: true });
   });

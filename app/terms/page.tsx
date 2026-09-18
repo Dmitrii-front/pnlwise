@@ -1,13 +1,13 @@
 import { config } from "@/lib/config";
 import { Header, Footer, disclaimer } from "@/components/product/shared";
-import { setting } from "@/lib/server";
+import { operationalIdentity } from "@/lib/server";
 export const metadata = {
   title: "Terms of Service",
   description: `Terms for creating estimated financial reports with ${config.name}, including your review responsibilities, payments, and report limitations.`,
   alternates: { canonical: "/terms" },
 };
 export default function Page() {
-  const contact = setting("SUPPORT_EMAIL") || config.supportEmail;
+  const identity = operationalIdentity();
   return (
     <>
       <Header />
@@ -15,7 +15,7 @@ export default function Page() {
         <span className="eyebrow">TERMS</span>
         <h1>Terms of Service</h1>
         <p className="legal-date">Last updated September 16, 2026</p>
-        {!contact && (
+        {!identity.configured && (
           <p className="info-box">
             These terms describe the preview service. Operator, support, and
             commercial launch details must be completed before accepting
@@ -82,10 +82,12 @@ export default function Page() {
         </section>
         <section>
           <h2>Operator and contact</h2>
-          {contact ? (
+          {identity.configured ? (
             <p>
-              {setting("LEGAL_OPERATOR_NAME") || config.operator} ·{" "}
-              <a href={`mailto:${contact}`}>{contact}</a>
+              {identity.operator} ·{" "}
+              <a href={`mailto:${identity.supportEmail}`}>
+                {identity.supportEmail}
+              </a>
             </p>
           ) : (
             <p>

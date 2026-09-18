@@ -83,6 +83,28 @@ export function isPaddleSandboxEnvironment(environment: string | undefined) {
   return environment === undefined || environment === "sandbox";
 }
 
+export function isPaddleSandboxConfiguration(input: {
+  apiKey: string | undefined;
+  clientToken: string | undefined;
+  environment: string | undefined;
+  publicEnvironment: string | undefined;
+  notificationSecret: string | undefined;
+  identityConfigured: boolean;
+  amount: number;
+  origin: string | undefined;
+}) {
+  return (
+    isPaddleSandboxApiKey(input.apiKey) &&
+    isPaddleSandboxClientToken(input.clientToken) &&
+    isPaddleSandboxEnvironment(input.environment) &&
+    isPaddleSandboxEnvironment(input.publicEnvironment) &&
+    isPaddleNotificationSecret(input.notificationSecret) &&
+    input.identityConfigured &&
+    input.amount === PADDLE_PRICE_AMOUNT &&
+    !!input.origin
+  );
+}
+
 export function isPaddleNotificationSecret(secret: string | undefined) {
   if (!secret?.startsWith("pdl_ntfset_")) return false;
   const value = secret.slice("pdl_ntfset_".length);

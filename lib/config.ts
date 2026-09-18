@@ -15,10 +15,7 @@ function bounded(
 }
 /** Public product defaults. Override NEXT_PUBLIC_* at build time; never put secrets here. */
 export const config = {
-  name: process.env.NEXT_PUBLIC_SERVICE_NAME || "Clearledger",
-  operator: process.env.NEXT_PUBLIC_OPERATOR_NAME || "Clearledger",
-  supportEmail:
-    process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@example.invalid",
+  name: process.env.NEXT_PUBLIC_SERVICE_NAME || "Pnlwise",
   siteUrl:
     process.env.NEXT_PUBLIC_SITE_URL ||
     "https://example.invalid",

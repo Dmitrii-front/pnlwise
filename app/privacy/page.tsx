@@ -1,14 +1,14 @@
 import { config } from "@/lib/config";
 import { Header, Footer } from "@/components/product/shared";
 import { DeleteData } from "@/components/product/session";
-import { setting } from "@/lib/server";
+import { operationalIdentity } from "@/lib/server";
 export const metadata = {
   title: "Privacy Policy",
   description: `How ${config.name} collects, uses, retains, and deletes uploaded statement data and payment records.`,
   alternates: { canonical: "/privacy" },
 };
 export default function Page() {
-  const contact = setting("SUPPORT_EMAIL") || config.supportEmail;
+  const identity = operationalIdentity();
   return (
     <>
       <Header />
@@ -16,7 +16,7 @@ export default function Page() {
         <span className="eyebrow">PRIVACY</span>
         <h1>Privacy Policy</h1>
         <p className="legal-date">Last updated September 13, 2026</p>
-        {!contact && (
+        {!identity.configured && (
           <p className="info-box">
             Preview service: commercial operator and support details are still
             being configured. Payment is not available until launch
@@ -95,11 +95,13 @@ export default function Page() {
         </section>
         <section>
           <h2>Contact</h2>
-          {contact ? (
+          {identity.configured ? (
             <p>
               For privacy requests, contact{" "}
-              <a href={`mailto:${contact}`}>{contact}</a>. Operator:{" "}
-              {setting("LEGAL_OPERATOR_NAME") || config.operator}.
+              <a href={`mailto:${identity.supportEmail}`}>
+                {identity.supportEmail}
+              </a>
+              . Operator: {identity.operator}.
             </p>
           ) : (
             <p>

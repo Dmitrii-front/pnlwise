@@ -2,7 +2,15 @@
 import { readResponse } from "@/lib/api-client";
 import { config } from "@/lib/config";
 import { money } from "@/lib/domain";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  clearUploadFormState,
+  readBusinessNameHistory,
+  readUploadFormState,
+  rememberBusinessName,
+  writeUploadFormState,
+  type AmountConvention,
+} from "@/lib/upload-form-storage";
 import {
   UploadCloud,
   FileText,
@@ -58,14 +66,101 @@ export default function UploadForm() {
   const [periodEnd, setEnd] = useState("");
   const [all, setAll] = useState("yes");
   const [account, setAccount] = useState("");
+  const [amountConvention, setAmountConvention] =
+    useState<AmountConvention>("");
   const [accounts, setAccounts] = useState<Record<string, string>>({});
   const [reportId, setReportId] = useState("");
+  const [recentBusinessNames, setRecentBusinessNames] = useState<string[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+  const [recovering, setRecovering] = useState(true);
   const [done, setDone] = useState<string[]>([]);
   const [mapping, setMapping] = useState<{
     file: File;
     headers: string[];
   } | null>(null);
   const [map, setMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      const saved = readUploadFormState(window.localStorage);
+      setBusinessType(saved.businessType);
+      setBusinessName(saved.businessName);
+      setStart(saved.periodStart);
+      setEnd(saved.periodEnd);
+      setAll(saved.allAccounts);
+      setAccount(saved.accountLabel);
+      setAmountConvention(saved.amountConvention);
+      setRecentBusinessNames(readBusinessNameHistory(window.localStorage));
+      setHydrated(true);
+
+      const id = new URL(window.location.href).searchParams.get("report");
+      if (!id) {
+        setRecovering(false);
+        return;
+      }
+      void recover(id);
+    });
+
+    async function recover(id: string) {
+      try {
+        const response = await fetch(`/api/reports/${encodeURIComponent(id)}`, {
+          signal: controller.signal,
+        });
+        const data = await readResponse(response);
+        if (!response.ok) throw Error(data.error);
+        if (data.report.status !== "upload") {
+          window.location.replace(
+            `/generate/processing?report=${encodeURIComponent(id)}`,
+          );
+          return;
+        }
+        setReportId(data.report.id);
+        setBusinessType(data.report.businessType);
+        setBusinessName(data.report.businessName);
+        setStart(data.report.periodStart);
+        setEnd(data.report.periodEnd);
+        if (data.report.statements.length) {
+          setStatus(
+            `${data.report.statements.length} statement${data.report.statements.length === 1 ? " is" : "s are"} already saved to this draft. Add any remaining files.`,
+          );
+        }
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError")
+          return;
+        window.history.replaceState(null, "", "/generate");
+        setReportId("");
+        setError(
+          "That saved draft is unavailable or has expired. You can start a new upload.",
+        );
+      } finally {
+        if (!controller.signal.aborted) setRecovering(false);
+      }
+    }
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    writeUploadFormState(window.localStorage, {
+      businessType,
+      businessName,
+      periodStart,
+      periodEnd,
+      allAccounts: all as "yes" | "no",
+      accountLabel: account,
+      amountConvention,
+    });
+  }, [
+    account,
+    all,
+    amountConvention,
+    businessName,
+    businessType,
+    hydrated,
+    periodEnd,
+    periodStart,
+  ]);
   function add(incoming: File[]) {
     setError("");
     const accepted: File[] = [];
@@ -115,7 +210,7 @@ export default function UploadForm() {
     if (!response.ok) {
       if (data.details?.headers) {
         setMapping({ file: f, headers: data.details.headers });
-        setMap({});
+        setMap(amountConvention ? { convention: amountConvention } : {});
       }
       throw Error(
         data.error ||
@@ -161,7 +256,15 @@ export default function UploadForm() {
         if (!res.ok) throw Error(d.error);
         id = d.report.id;
         setReportId(id);
+        window.history.replaceState(
+          null,
+          "",
+          `/generate?report=${encodeURIComponent(id)}`,
+        );
       }
+      setRecentBusinessNames(
+        rememberBusinessName(window.localStorage, businessName),
+      );
       const completed = [...done];
       for (const f of files) {
         const key = f.name + f.size;
@@ -174,6 +277,7 @@ export default function UploadForm() {
         setDone([...completed]);
         if (mapping?.file === f) setMapping(null);
       }
+      clearUploadFormState(window.localStorage);
       window.location.href = `/generate/processing?report=${id}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please retry your upload.");
@@ -222,7 +326,7 @@ export default function UploadForm() {
                 type="button"
                 variant="outline"
                 onClick={() => input.current?.click()}
-                disabled={busy}
+                disabled={busy || recovering}
               >
                 Choose files
               </Button>
@@ -237,7 +341,7 @@ export default function UploadForm() {
                   add(Array.from(e.target.files || []));
                   e.target.value = "";
                 }}
-                disabled={busy}
+                disabled={busy || recovering}
               />
             </div>
             {files.length > 0 && (
@@ -260,7 +364,9 @@ export default function UploadForm() {
                         aria-label={`Account for ${f.name}`}
                         placeholder="Account label (optional)"
                         value={accounts[f.name + f.size] || ""}
-                        disabled={busy || done.includes(f.name + f.size)}
+                        disabled={
+                          busy || recovering || done.includes(f.name + f.size)
+                        }
                         onChange={(e) =>
                           setAccounts({
                             ...accounts,
@@ -274,7 +380,9 @@ export default function UploadForm() {
                       variant="ghost"
                       size="icon"
                       aria-label={`Remove ${f.name}`}
-                      disabled={busy || done.includes(f.name + f.size)}
+                      disabled={
+                        busy || recovering || done.includes(f.name + f.size)
+                      }
                       onClick={() => setFiles(files.filter((_, j) => j !== i))}
                     >
                       <X size={17} />
@@ -298,7 +406,7 @@ export default function UploadForm() {
                 maxLength={40}
                 onChange={(e) => setAccount(e.target.value)}
                 placeholder="e.g. Business checking 1234"
-                disabled={busy || !!reportId}
+                disabled={busy || recovering || !!reportId}
               />
             </label>
           </section>
@@ -308,11 +416,11 @@ export default function UploadForm() {
             </div>
             <div className="form-grid">
               <label className="field">
-                Business type
+                <span className="field-label">Business type</span>
                 <Select
                   value={businessType}
                   onValueChange={setBusinessType}
-                  disabled={busy || !!reportId}
+                  disabled={busy || recovering || !!reportId}
                 >
                   <SelectTrigger aria-label="Business type">
                     <SelectValue placeholder="Select your business type" />
@@ -327,15 +435,23 @@ export default function UploadForm() {
                 </Select>
               </label>
               <label className="field">
-                Business name <span className="optional">optional</span>
+                <span className="field-label">
+                  Business name <span className="optional">· optional</span>
+                </span>
                 <input
                   type="text"
+                  list="pnlwise-business-name-history"
                   value={businessName}
                   maxLength={100}
                   onChange={(e) => setBusinessName(e.target.value)}
                   placeholder="Your business name"
-                  disabled={busy || !!reportId}
+                  disabled={busy || recovering || !!reportId}
                 />
+                <datalist id="pnlwise-business-name-history">
+                  {recentBusinessNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </label>
             </div>
             <fieldset className="period-fields">
@@ -353,7 +469,7 @@ export default function UploadForm() {
                     type="date"
                     value={periodStart}
                     onChange={(e) => setStart(e.target.value)}
-                    disabled={busy || !!reportId}
+                    disabled={busy || recovering || !!reportId}
                   />
                 </label>
                 <label className="field">
@@ -363,14 +479,18 @@ export default function UploadForm() {
                     type="date"
                     value={periodEnd}
                     onChange={(e) => setEnd(e.target.value)}
-                    disabled={busy || !!reportId}
+                    disabled={busy || recovering || !!reportId}
                   />
                 </label>
               </div>
             </fieldset>
             <label className="field">
               Are these all your business accounts for this period?
-              <Select value={all} onValueChange={setAll}>
+              <Select
+                value={all}
+                onValueChange={setAll}
+                disabled={busy || recovering}
+              >
                 <SelectTrigger aria-label="All business accounts">
                   <SelectValue />
                 </SelectTrigger>
@@ -398,7 +518,11 @@ export default function UploadForm() {
             <span>
               <LockKeyhole size={14} /> Private processing. No bank connection.
             </span>
-            <Button className="cta" disabled={busy} type="submit">
+            <Button
+              className="cta"
+              disabled={busy || recovering || !hydrated}
+              type="submit"
+            >
               {busy ? (
                 <>
                   <Loader2 className="animate-spin" />
@@ -508,8 +632,11 @@ export default function UploadForm() {
             <label className="field">
               Signed amount convention
               <Select
-                value={map.convention || undefined}
-                onValueChange={(v) => setMap({ ...map, convention: v })}
+                value={map.convention || amountConvention || undefined}
+                onValueChange={(v) => {
+                  setMap({ ...map, convention: v });
+                  setAmountConvention(v as AmountConvention);
+                }}
               >
                 <SelectTrigger aria-label="Amount convention">
                   <SelectValue placeholder="Choose money in or money out" />
