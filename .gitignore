@@ -21,6 +21,11 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.p12
+*.pfx
+*.log
+.npmrc
 
 # debug
 npm-debug.log*
@@ -30,6 +35,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.dev.vars*
 
 # vercel
 .vercel
@@ -38,11 +44,20 @@ yarn-error.log*
 next-env.d.ts
 /dist/
 /.wrangler/
+/.cloudflare/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 # Checkout-local execution profile and tool state; never publish them.
 /.sites-runtime/
 /.agents/
 /.codex/
 /outputs/
+/uploads/
+/exports/
+/generated-reports/
 /work/
 !.env.example
 /test-results/
