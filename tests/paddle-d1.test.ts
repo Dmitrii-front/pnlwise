@@ -284,3 +284,41 @@ test("D1 prevents checkout creation and report deletion from crossing", () => {
     0,
   );
 });
+
+test("D1 claims a terminal transaction replacement exactly once", () => {
+  const database = databaseBeforePaymentMigration();
+  applyMigration(database, "0002_high_liz_osborn.sql");
+  insertReport(database, "report-1", 2_000);
+  const purchaseKey = `paddle:report-1:${PADDLE_PRODUCT_ID}:${PADDLE_PRICE_ID}`;
+  database
+    .prepare(
+      "INSERT INTO payments(id,report_id,paddle_transaction_id,purchase_key,amount,currency,status,created_at) VALUES(?,?,?,?,1299,'usd','pending',0)",
+    )
+    .run("payment-stable", "report-1", "txn_canceled", purchaseKey);
+
+  const first = database
+    .prepare(paddleCheckoutSql.claimReplacement)
+    .run(1_000, purchaseKey, "txn_canceled");
+  const concurrent = database
+    .prepare(paddleCheckoutSql.claimReplacement)
+    .run(1_000, purchaseKey, "txn_canceled");
+
+  assert.equal(first.changes, 1);
+  assert.equal(concurrent.changes, 0);
+  assert.deepEqual(
+    {
+      ...database
+        .prepare(
+          "SELECT id,purchase_key,status,paddle_transaction_id,checkout_claimed_at FROM payments WHERE id='payment-stable'",
+        )
+        .get(),
+    },
+    {
+      id: "payment-stable",
+      purchase_key: purchaseKey,
+      status: "creating",
+      paddle_transaction_id: null,
+      checkout_claimed_at: 1_000,
+    },
+  );
+});

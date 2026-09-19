@@ -13,9 +13,6 @@ export function Analytics() {
           name,
           metadata: {
             landing: pathname,
-            referral: document.referrer
-              ? new URL(document.referrer).hostname
-              : "",
           },
         }),
         keepalive: true,

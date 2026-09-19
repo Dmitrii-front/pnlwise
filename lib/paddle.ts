@@ -161,6 +161,13 @@ const paddleCheckoutStore: PaddleCheckoutStore = {
       .run();
     return (result.meta.changes || 0) > 0;
   },
+  async claimReplacement(input) {
+    const result = await db()
+      .prepare(paddleCheckoutSql.claimReplacement)
+      .bind(input.now, input.purchaseKey, input.transactionId)
+      .run();
+    return (result.meta.changes || 0) > 0;
+  },
   async markCreationFailed(paymentId) {
     await db()
       .prepare(
@@ -179,6 +186,26 @@ const paddleCheckoutStore: PaddleCheckoutStore = {
   },
 };
 
+async function getPaddleCheckoutState(transactionId: string) {
+  try {
+    const transaction = await sandboxPaddle().transactions.get(transactionId);
+    return { status: transaction.status };
+  } catch (error) {
+    throw new AppError(
+      "Checkout status is temporarily unavailable. Your report is saved. Please try again.",
+      502,
+      undefined,
+      {
+        code: "PADDLE_CHECKOUT_LOOKUP_FAILED",
+        stage: "paddle.checkout.lookup",
+        providerRequestId: safeProviderRequestId(error),
+        retryable: true,
+        alertable: true,
+      },
+    );
+  }
+}
+
 export async function getOrCreatePaddleCheckout(
   reportId: string,
   amount: number,
@@ -190,6 +217,7 @@ export async function getOrCreatePaddleCheckout(
     store: paddleCheckoutStore,
     createTransaction: (targetReportId, paymentId) =>
       createPaddleCheckout(targetReportId, paymentId, origin),
+    getTransaction: getPaddleCheckoutState,
   });
 }
 

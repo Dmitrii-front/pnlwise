@@ -37,6 +37,7 @@ import { FlowSteps } from "./upload";
 import { AccountPrompt } from "./account";
 import { DeleteData } from "./session";
 import { disclaimer } from "./shared";
+import { reportWorkflowPath, reportWorkflowStep } from "@/lib/report-workflow";
 type Pnl = ReturnType<typeof calculatePnl>;
 let paddlePromise: Promise<Paddle | undefined> | undefined;
 function getPaddleSandbox() {
@@ -82,6 +83,14 @@ export default function ReportView({
       const res = await fetch(`/api/reports/${id}`);
       const d = await readResponse(res);
       if (!res.ok) throw Error(d.error);
+      if (reportWorkflowStep(d.report) !== "report") {
+        window.location.replace(reportWorkflowPath(d.report));
+        return false;
+      }
+      if (!d.pnl)
+        throw Error(
+          "This report is not ready yet. Return to Review and finish generating it.",
+        );
       setReport(d.report);
       setPnl(d.pnl);
       setPrice(d.priceCents);

@@ -12,6 +12,8 @@ export const paddleFinalizeSql = {
 export const paddleCheckoutSql = {
   insertClaim:
     "INSERT INTO payments(id,report_id,purchase_key,amount,currency,status,checkout_claimed_at,created_at) SELECT ?,?,?,?,'usd','creating',?,? WHERE EXISTS (SELECT 1 FROM reports WHERE id=? AND expires_at>?) ON CONFLICT(purchase_key) DO NOTHING",
+  claimReplacement:
+    "UPDATE payments SET status='creating',paddle_transaction_id=NULL,checkout_claimed_at=?,failure_reason=NULL WHERE purchase_key=? AND paddle_transaction_id=? AND status='pending'",
   activeForOwner:
     "SELECT 1 FROM payments JOIN reports ON reports.id=payments.report_id WHERE (reports.session_hash=? OR reports.user_id=?) AND payments.purchase_key IS NOT NULL AND payments.status IN ('creating','pending') LIMIT 1",
   deleteOwnedWithoutActive:

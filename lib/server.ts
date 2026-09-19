@@ -9,6 +9,7 @@ import { env } from "cloudflare:workers";
 import { cookies } from "next/headers";
 import { hasUnresolvedRefund, type Report } from "./domain";
 import { readOperationalIdentity } from "./operational-identity";
+import { safeAnalyticsMetadata } from "./analytics";
 import {
   retentionSql,
   runRetentionCleanup,
@@ -231,31 +232,7 @@ export async function track(
   name: string,
   metadata: Record<string, unknown> = {},
 ) {
-  const allowed = [
-    "landing",
-    "referral",
-    "fileType",
-    "statementCount",
-    "transactionCount",
-    "businessType",
-    "reviewCount",
-    "format",
-    "kind",
-    "removed",
-    "batches",
-    "remaining",
-    "code",
-    "stage",
-  ];
-  const safe = Object.fromEntries(
-    Object.entries(metadata)
-      .filter(
-        ([k, v]) =>
-          allowed.includes(k) &&
-          ["string", "number", "boolean"].includes(typeof v),
-      )
-      .map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 160) : v]),
-  );
+  const safe = safeAnalyticsMetadata(metadata);
   await db()
     .prepare("INSERT INTO events(id,name,metadata,created_at) VALUES(?,?,?,?)")
     .bind(crypto.randomUUID(), name, JSON.stringify(safe), Date.now())

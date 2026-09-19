@@ -11,6 +11,7 @@ import {
   writeUploadFormState,
   type AmountConvention,
 } from "@/lib/upload-form-storage";
+import { reportWorkflowPath, reportWorkflowStep } from "@/lib/report-workflow";
 import {
   UploadCloud,
   FileText,
@@ -109,10 +110,8 @@ export default function UploadForm() {
         });
         const data = await readResponse(response);
         if (!response.ok) throw Error(data.error);
-        if (data.report.status !== "upload") {
-          window.location.replace(
-            `/generate/processing?report=${encodeURIComponent(id)}`,
-          );
+        if (reportWorkflowStep(data.report) !== "upload") {
+          window.location.replace(reportWorkflowPath(data.report));
           return;
         }
         setReportId(data.report.id);
@@ -277,8 +276,15 @@ export default function UploadForm() {
         setDone([...completed]);
         if (mapping?.file === f) setMapping(null);
       }
+      const processResponse = await fetch(`/api/reports/${id}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: 0 }),
+      });
+      const processed = await readResponse(processResponse);
+      if (!processResponse.ok) throw Error(processed.error);
       clearUploadFormState(window.localStorage);
-      window.location.href = `/generate/processing?report=${id}`;
+      window.location.href = reportWorkflowPath(processed.report);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please retry your upload.");
     } finally {

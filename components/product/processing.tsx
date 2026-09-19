@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Loader2, FileCheck2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FlowSteps } from "./upload";
+import { reportWorkflowPath, reportWorkflowStep } from "@/lib/report-workflow";
 export default function Processing({ id }: { id: string }) {
   const [stage, setStage] = useState(0);
   const [error, setError] = useState("");
@@ -18,6 +19,10 @@ export default function Processing({ id }: { id: string }) {
         let response = await fetch(`/api/reports/${id}`);
         let data = await readResponse(response);
         if (!response.ok) throw Error(data.error);
+        if (reportWorkflowStep(data.report) !== "processing") {
+          window.location.replace(reportWorkflowPath(data.report));
+          return;
+        }
         let step = data.report.stage;
         while (step < 6) {
           if (canceled) return;
@@ -33,7 +38,7 @@ export default function Processing({ id }: { id: string }) {
         }
         if (!canceled) {
           setStage(6);
-          window.location.replace(`/generate/review?report=${id}`);
+          window.location.replace(reportWorkflowPath(data.report));
         }
       } catch (e) {
         if (!canceled)

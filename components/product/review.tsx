@@ -41,6 +41,7 @@ import {
 } from "@/lib/domain";
 import { FlowSteps } from "./upload";
 import { DeleteData } from "./session";
+import { reportWorkflowPath, reportWorkflowStep } from "@/lib/report-workflow";
 
 function reviewStatus(t: Transaction) {
   if (t.categoryId === "refund") return { label: "Review", level: "low" };
@@ -117,6 +118,10 @@ export default function Review({ id }: { id: string }) {
       const res = await fetch(`/api/reports/${id}`);
       const d = await readResponse(res);
       if (!res.ok) throw Error(d.error);
+      if (reportWorkflowStep(d.report) !== "review") {
+        window.location.replace(reportWorkflowPath(d.report));
+        return;
+      }
       setReport(d.report);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please retry.");

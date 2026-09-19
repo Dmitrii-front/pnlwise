@@ -106,7 +106,9 @@ test("created draft stays in the URL, recovers without duplication, and remains 
   });
 
   await page.goto("/generate");
-  await page.getByLabel("Upload bank statements").setInputFiles(fixture);
+  const uploadInput = page.getByLabel("Upload bank statements");
+  await expect(uploadInput).toBeEnabled();
+  await uploadInput.setInputFiles(fixture);
   await page
     .getByRole("combobox", { name: "Business type", exact: true })
     .click();
@@ -121,6 +123,9 @@ test("created draft stays in the URL, recovers without duplication, and remains 
   await expect(page).toHaveURL(/\/generate\?report=[0-9a-f-]+$/);
   const reportId = new URL(page.url()).searchParams.get("report")!;
   expect(reportCreates).toBe(1);
+
+  await page.goto(`/report/${reportId}`);
+  await expect(page).toHaveURL(new RegExp(`/generate\\?report=${reportId}$`));
 
   await expect(
     page.locator(
@@ -151,6 +156,13 @@ test("created draft stays in the URL, recovers without duplication, and remains 
     baseURL: new URL(page.url()).origin,
   });
   const strangerPage = await stranger.newPage();
+  await strangerPage.goto(`/report/${reportId}`);
+  await expect(strangerPage.getByRole("alert")).toContainText(
+    "report is unavailable",
+  );
+  await expect(
+    strangerPage.getByText("Loading your report…", { exact: true }),
+  ).toHaveCount(0);
   await strangerPage.goto(`/generate?report=${reportId}`);
   await expect(strangerPage.getByRole("alert")).toContainText(
     "saved draft is unavailable",
@@ -238,6 +250,10 @@ test("anonymous upload, review, loan split, P&L, unpaid export, and delete", asy
   expect(payload.report.transactions).toHaveLength(8);
   expect(payload.report.statements[0].amountConvention).toBe("credit-positive");
   expect(payload.reviewCount).toBe(4);
+  await page.goto(`/generate/processing?report=${id}`);
+  await expect(page).toHaveURL(
+    new RegExp(`/generate/review\\?report=${id}$`),
+  );
   const stranger = await browser.newContext();
   const other = await stranger.request.get(`/api/reports/${id}`);
   expect([401, 404]).toContain(other.status());
@@ -269,6 +285,8 @@ test("anonymous upload, review, loan split, P&L, unpaid export, and delete", asy
   await expect(
     page.getByText("Your P&L is ready.", { exact: true }),
   ).toBeVisible();
+  await page.goto(`/generate/review?report=${id}`);
+  await expect(page).toHaveURL(new RegExp(`/report/${id}$`));
   await expect(page.locator(".profit-metric strong")).toHaveText("$6,090.00");
   await page.getByRole("tab", { name: "Detailed", exact: true }).click();
   await expect(page.locator(".report-category details").first()).toBeVisible();
