@@ -4,8 +4,16 @@ import hostingConfig from "./.openai/hosting.json";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
 import { sites } from "./build/sites-vite-plugin";
 
-const CLOUDFLARE_STAGING_DATABASE_ID =
-  "4c9d7b91-f65a-417f-b3d6-8a5e93a737c1";
+const cloudflareDatabases = {
+  production: {
+    database_name: "pnlwise-production",
+    database_id: "a745b082-7c95-4cfe-b0d1-bdafff77d195",
+  },
+  staging: {
+    database_name: "pnlwise-staging",
+    database_id: "4c9d7b91-f65a-417f-b3d6-8a5e93a737c1",
+  },
+} as const;
 
 const { d1, r2 } = hostingConfig;
 
@@ -13,29 +21,31 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
 
-const localBindingConfig = {
-  main: "vinext/server/fetch-handler",
-  compatibility_flags: ["nodejs_compat"],
-  d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: "pnlwise-staging",
-          database_id: CLOUDFLARE_STAGING_DATABASE_ID,
-        },
-      ]
-    : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "site-creator-r2",
-        },
-      ]
-    : [],
-};
+export default defineConfig(async ({ command, mode }) => {
+  const databaseTarget =
+    command === "build" && mode !== "staging" ? "production" : "staging";
+  const database = cloudflareDatabases[databaseTarget];
+  const bindingConfig = {
+    main: "vinext/server/fetch-handler",
+    compatibility_flags: ["nodejs_compat"],
+    d1_databases: d1
+      ? [
+          {
+            binding: d1,
+            ...database,
+          },
+        ]
+      : [],
+    r2_buckets: r2
+      ? [
+          {
+            binding: r2,
+            bucket_name: "site-creator-r2",
+          },
+        ]
+      : [],
+  };
 
-export default defineConfig(async () => {
   // Use Miniflare's local Request.cf placeholder unless fetching is requested.
   process.env.CLOUDFLARE_CF_FETCH_ENABLED ??= "false";
   process.env.WRANGLER_SEND_METRICS ??= "false";
@@ -61,7 +71,7 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        config: bindingConfig,
       }),
     ],
   };
