@@ -16,18 +16,29 @@ import {
   ParseError,
   type Mapping,
 } from "@/lib/parsing";
+import {
+  boundedFormData,
+  MAX_UPLOAD_BODY_BYTES,
+  MAX_UPLOAD_FILE_BYTES,
+  RequestBodyTooLargeError,
+} from "@/lib/abuse-protection";
 export const POST = (req: Request) =>
   api(
     async () => {
       guardOrigin(req);
       await sessionRate(req, "upload", 80);
-      if (Number(req.headers.get("content-length")) > 11 * 1024 * 1024)
-        throw new AppError("Choose a file smaller than 10 MB.", 413);
-      const form = await req.formData();
+      let form: FormData;
+      try {
+        form = await boundedFormData(req, MAX_UPLOAD_BODY_BYTES);
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError)
+          throw new AppError("Choose a file smaller than 10 MB.", 413);
+        throw new AppError("Choose a valid bank statement upload.");
+      }
       const file = form.get("file");
       if (!(file instanceof File))
         throw new AppError("Choose a bank statement file.");
-      if (!file.size || file.size > 10 * 1024 * 1024)
+      if (!file.size || file.size > MAX_UPLOAD_FILE_BYTES)
         throw new AppError("Choose a nonempty file smaller than 10 MB.", 413);
       const ext = file.name.split(".").pop()?.toLowerCase();
       const allowed: Record<string, string[]> = {

@@ -1,7 +1,11 @@
-import { api, getReport, AppError, track } from "@/lib/server";
+import { api, getReport, AppError, sessionRate, track } from "@/lib/server";
 import { csvExport, pdfExport, xlsxExport } from "@/lib/export";
 import { config } from "@/lib/config";
 import { exportAccess } from "@/lib/export-access";
+import {
+  EXPORT_RATE_LIMIT,
+  EXPORT_RATE_WINDOW_SECONDS,
+} from "@/lib/abuse-protection";
 export const GET = (
   req: Request,
   { params }: { params: Promise<{ id: string; format: string }> },
@@ -14,6 +18,12 @@ export const GET = (
       if (!access.allowed) throw new AppError(access.message, access.status);
       if (!["pdf", "xlsx", "csv"].includes(format))
         throw new AppError("Choose PDF, Excel, or CSV.", 404);
+      await sessionRate(
+        req,
+        "export",
+        EXPORT_RATE_LIMIT,
+        EXPORT_RATE_WINDOW_SECONDS,
+      );
       let bytes;
       try {
         bytes =

@@ -15,6 +15,13 @@ import {
   runRetentionCleanup,
   type RetentionStore,
 } from "./retention";
+import {
+  processingLockOwner,
+  rateLimitSql,
+  REPORT_PROCESSING_LEASE_MS,
+  reportProcessingLockKey,
+  reportProcessingLockSql,
+} from "./abuse-protection";
 export class AppError extends Error {
   constructor(
     message: string,
@@ -135,9 +142,7 @@ export function guardOrigin(request: Request) {
 export async function rateLimit(key: string, limit: number, seconds: number) {
   const bucket = Math.floor(Date.now() / 1000 / seconds);
   const row = await db()
-    .prepare(
-      "INSERT INTO rate_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count",
-    )
+    .prepare(rateLimitSql.increment)
     .bind(`${key}:${bucket}`, Date.now() + seconds * 1000)
     .first<{ count: number }>();
   if ((row?.count || 0) > limit)
@@ -145,6 +150,25 @@ export async function rateLimit(key: string, limit: number, seconds: number) {
       "Too many requests. Please wait a few minutes and try again.",
       429,
     );
+}
+export async function claimReportProcessing(reportId: string) {
+  const now = Date.now();
+  const owner = processingLockOwner();
+  const expiresAt = now + REPORT_PROCESSING_LEASE_MS;
+  const row = await db()
+    .prepare(reportProcessingLockSql.acquire)
+    .bind(reportProcessingLockKey(reportId), owner, expiresAt, now)
+    .first<{ count: number }>();
+  return Number(row?.count) === owner ? { owner, expiresAt } : null;
+}
+export async function releaseReportProcessing(
+  reportId: string,
+  claim: { owner: number; expiresAt: number },
+) {
+  await db()
+    .prepare(reportProcessingLockSql.release)
+    .bind(reportProcessingLockKey(reportId), claim.owner, claim.expiresAt)
+    .run();
 }
 export async function sessionRate(
   request: Request,
