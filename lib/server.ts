@@ -16,12 +16,21 @@ import {
   type RetentionStore,
 } from "./retention";
 import {
+  MAX_API_BODY_BYTES,
   processingLockOwner,
   rateLimitSql,
+  readBoundedRequestText,
   REPORT_PROCESSING_LEASE_MS,
   reportProcessingLockKey,
   reportProcessingLockSql,
+  RequestBodyTooLargeError,
 } from "./abuse-protection";
+import {
+  aiBudgetAcquireBindings,
+  aiBudgetEntries,
+  aiBudgetSql,
+  exhaustedAiBudget,
+} from "./ai-budget";
 export class AppError extends Error {
   constructor(
     message: string,
@@ -180,6 +189,25 @@ export async function sessionRate(
   await rateLimit(`${name}:${await sha256(ip)}`, limit * 3, seconds);
   await rateLimit(`${name}:${await session(true)}`, limit, seconds);
 }
+export async function claimAiBudget(request: Request, reportId: string) {
+  const now = Date.now();
+  const entries = aiBudgetEntries({
+    reportId,
+    sessionHash: await session(true),
+    ipHash: await sha256(request.headers.get("cf-connecting-ip") || "local"),
+    now,
+  });
+  const acquired = await db()
+    .prepare(aiBudgetSql.acquire)
+    .bind(...aiBudgetAcquireBindings(entries))
+    .all<{ key: string; count: number }>();
+  if (acquired.results.length === entries.length) return null;
+  const counts = await db()
+    .prepare(aiBudgetSql.counts)
+    .bind(...entries.map((entry) => entry.key))
+    .all<{ key: string; count: number }>();
+  return exhaustedAiBudget(entries, counts.results);
+}
 export function json(data: unknown, status = 200) {
   return Response.json(data, {
     status,
@@ -244,8 +272,14 @@ export async function api(
   }
 }
 export async function body(request: Request) {
-  const raw = await request.text();
-  if (raw.length > 100000) throw new AppError("Request too large.", 413);
+  let raw: string;
+  try {
+    raw = await readBoundedRequestText(request, MAX_API_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError)
+      throw new AppError("Request too large.", 413);
+    throw error;
+  }
   try {
     return JSON.parse(raw);
   } catch {

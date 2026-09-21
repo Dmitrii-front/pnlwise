@@ -4,6 +4,10 @@ import { Environment, Paddle } from "@paddle/paddle-node-sdk";
 import { sampleReport } from "../lib/domain";
 import { exportAccess } from "../lib/export-access";
 import {
+  MAX_API_BODY_BYTES,
+  readBoundedRequestText,
+} from "../lib/abuse-protection";
+import {
   PADDLE_CURRENCY,
   PADDLE_PRICE_AMOUNT,
   PADDLE_PRICE_ID,
@@ -257,8 +261,15 @@ test("valid Paddle signature reaches business validation", async () => {
       payments: [],
     },
   });
+  const rawPayload = await readBoundedRequestText(
+    new Request("https://pnlwise.test/api/paddle/webhook", {
+      method: "POST",
+      body: payload,
+    }),
+    MAX_API_BODY_BYTES,
+  );
   const valid = await unmarshalPaddleWebhook(
-    payload,
+    rawPayload,
     await paddleSignature(
       payload,
       notificationSecret,

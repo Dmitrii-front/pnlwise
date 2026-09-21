@@ -1,15 +1,23 @@
 import { api, json, setting, AppError } from "@/lib/server";
 import { fulfill } from "@/lib/payments";
 import { parseTestStripeEvent } from "@/lib/payment-core";
+import {
+  MAX_API_BODY_BYTES,
+  readBoundedRequestText,
+  RequestBodyTooLargeError,
+} from "@/lib/abuse-protection";
 export const POST = (req: Request) =>
   api(async () => {
     const secret = setting("STRIPE_WEBHOOK_SECRET");
     if (!secret) throw new AppError("Webhook not configured.", 503);
-    if (Number(req.headers.get("content-length")) > 100000)
-      throw new AppError("Payload too large.", 413);
-    const payload = await req.text();
-    if (payload.length > 100000)
-      throw new AppError("Payload too large.", 413);
+    let payload: string;
+    try {
+      payload = await readBoundedRequestText(req, MAX_API_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError)
+        throw new AppError("Payload too large.", 413);
+      throw error;
+    }
     const parsed = await parseTestStripeEvent(
       payload,
       req.headers.get("stripe-signature") || "",

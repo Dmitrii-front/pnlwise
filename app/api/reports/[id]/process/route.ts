@@ -9,6 +9,7 @@ import {
   track,
   AppError,
   setting,
+  claimAiBudget,
   claimReportProcessing,
   releaseReportProcessing,
 } from "@/lib/server";
@@ -21,6 +22,7 @@ import {
   validDate,
 } from "@/lib/domain";
 import { aiCategorize } from "@/lib/ai";
+import { AI_CLASSIFICATION_BATCH_SIZE } from "@/lib/ai-budget";
 export const POST = (
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -89,13 +91,20 @@ export const POST = (
           case 4: {
             // Bound each AI request; unresolved transactions remain available for manual review.
             const cursor = report.aiCursor || 0;
-            const pending = report.transactions.slice(cursor, cursor + 40);
-            const result = await aiCategorize(pending, report.businessType);
+            const pending = report.transactions.slice(
+              cursor,
+              cursor + AI_CLASSIFICATION_BATCH_SIZE,
+            );
+            const result = await aiCategorize(
+              pending,
+              report.businessType,
+              () => claimAiBudget(req, id),
+            );
             const updates = new Map(result.transactions.map((t) => [t.id, t]));
             report.transactions = report.transactions.map(
               (t) => updates.get(t.id) || t,
             );
-            report.aiCursor = cursor + 40;
+            report.aiCursor = cursor + AI_CLASSIFICATION_BATCH_SIZE;
             if (result.warning && !report.warnings.includes(result.warning))
               report.warnings.push(result.warning);
             if (

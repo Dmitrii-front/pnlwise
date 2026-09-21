@@ -7,6 +7,10 @@ import {
   type Transaction,
 } from "./domain";
 import type { OperationalDiagnostic } from "./operational-diagnostics";
+import {
+  AiBudgetExhaustedError,
+  type AiBudgetReason,
+} from "./ai-budget";
 
 const aiCategories = categories.filter(
   (category) => category.id !== "duplicate",
@@ -31,10 +35,12 @@ const responseItem = z
 
 const responseBody = z.object({ items: z.array(responseItem) }).strict();
 
-type Fetcher = (
+export type Fetcher = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+export type AiBudgetCheck = () => Promise<AiBudgetReason | null>;
 
 export type OpenAIFailureKind =
   | "timeout"
@@ -184,15 +190,19 @@ export async function categorizeTransactionsWithOpenAI({
   apiKey,
   model,
   fetcher = fetch,
+  beforeRequest,
 }: {
   transactions: Transaction[];
   businessType: string;
   apiKey: string;
   model: string;
   fetcher?: Fetcher;
+  beforeRequest?: AiBudgetCheck;
 }) {
   const batch = transactions.filter(isAiCandidate);
   if (!batch.length) return transactions;
+  const exhausted = await beforeRequest?.();
+  if (exhausted) throw new AiBudgetExhaustedError(exhausted);
 
   let response;
   try {

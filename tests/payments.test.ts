@@ -3,6 +3,10 @@ import test from "node:test";
 import { sampleReport } from "../lib/domain";
 import { exportAccess } from "../lib/export-access";
 import {
+  MAX_API_BODY_BYTES,
+  readBoundedRequestText,
+} from "../lib/abuse-protection";
+import {
   buildCheckoutForm,
   fulfillPayment,
   isStripeTestSecretKey,
@@ -141,6 +145,26 @@ test("webhook verification rejects invalid signatures and signed live events", a
     ),
     { ok: false, error: "live_mode" },
   );
+});
+
+test("bounded Stripe webhook body preserves the signed raw payload", async () => {
+  const secret = "whsec_test_example";
+  const time = Math.floor(Date.now() / 1000);
+  const payload = '{\n  "livemode": false,\n  "type": "test.event"\n}\n';
+  const rawPayload = await readBoundedRequestText(
+    new Request("https://pnlwise.test/api/stripe/webhook", {
+      method: "POST",
+      body: payload,
+    }),
+    MAX_API_BODY_BYTES,
+  );
+  const parsed = await parseTestStripeEvent(
+    rawPayload,
+    await stripeSignature(payload, secret, time),
+    secret,
+    time * 1000,
+  );
+  assert.equal(parsed.ok, true);
 });
 
 test("correct verified $12.99 payment unlocks the report once", async () => {

@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
+import { disableReadableStreamDebug } from "./build/disable-readable-stream-debug";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -66,6 +67,7 @@ export default defineConfig(async ({ command, mode }) => {
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
+      disableReadableStreamDebug(),
       vinext(),
       sites({ mockAuth: !managedLinux }),
       cloudflare({

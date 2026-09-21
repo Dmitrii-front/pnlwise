@@ -1,35 +1,20 @@
 import type { Transaction } from "./domain";
-import {
-  categorizeTransactionsWithOpenAI,
-  openAiFailureDiagnostic,
-} from "./ai-classification";
+import type { AiBudgetCheck } from "./ai-classification";
 import { setting } from "./server";
 import { reportOperationalError } from "./monitoring";
-
-const disabledWarning =
-  "AI categorization is not enabled. Merchant rules were applied; please review the remaining items.";
-const failureWarning =
-  "Some transactions could not be categorized automatically. Your extracted data is safe. Review those items manually.";
+import { runAiCategorization } from "./ai-core";
 
 export async function aiCategorize(
   transactions: Transaction[],
   businessType: string,
+  beforeRequest?: AiBudgetCheck,
 ) {
-  const apiKey = setting("OPENAI_API_KEY");
-  const model = setting("OPENAI_MODEL");
-  if (!apiKey || !model) return { transactions, warning: disabledWarning };
-
-  try {
-    return {
-      transactions: await categorizeTransactionsWithOpenAI({
-        transactions,
-        businessType,
-        apiKey,
-        model,
-      }),
-    };
-  } catch (error) {
-    await reportOperationalError(openAiFailureDiagnostic(error), error);
-    return { transactions, warning: failureWarning };
-  }
+  return runAiCategorization({
+    transactions,
+    businessType,
+    apiKey: setting("OPENAI_API_KEY"),
+    model: setting("OPENAI_MODEL"),
+    beforeRequest,
+    report: reportOperationalError,
+  });
 }

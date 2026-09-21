@@ -8,6 +8,11 @@ import {
   isPaddleNotificationSecret,
   unmarshalPaddleWebhook,
 } from "@/lib/paddle-payment-core";
+import {
+  MAX_API_BODY_BYTES,
+  readBoundedRequestText,
+  RequestBodyTooLargeError,
+} from "@/lib/abuse-protection";
 
 export const POST = (req: Request) =>
   api(async () => {
@@ -23,10 +28,14 @@ export const POST = (req: Request) =>
           alertable: true,
         },
       );
-    if (Number(req.headers.get("content-length")) > 100000)
-      throw new AppError("Payload too large.", 413);
-    const payload = await req.text();
-    if (payload.length > 100000) throw new AppError("Payload too large.", 413);
+    let payload: string;
+    try {
+      payload = await readBoundedRequestText(req, MAX_API_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError)
+        throw new AppError("Payload too large.", 413);
+      throw error;
+    }
     try {
       const event = await unmarshalPaddleWebhook(
         payload,

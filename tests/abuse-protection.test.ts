@@ -5,12 +5,141 @@ import {
   boundedFormData,
   EXPORT_RATE_LIMIT,
   EXPORT_RATE_WINDOW_SECONDS,
+  MAX_API_BODY_BYTES,
   rateLimitSql,
   readBoundedRequestBody,
+  readBoundedRequestText,
   reportProcessingLockKey,
   reportProcessingLockSql,
   RequestBodyTooLargeError,
 } from "../lib/abuse-protection";
+
+function streamedRequest(
+  path: string,
+  chunks: Uint8Array[],
+  headers: HeadersInit = {},
+) {
+  return new Request(`https://pnlwise.test${path}`, {
+    method: "POST",
+    headers,
+    body: new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    }),
+    duplex: "half",
+  } as RequestInit);
+}
+
+test("bounded text reader accepts normal JSON under the API limit", async () => {
+  const payload = JSON.stringify({ name: "landing_view" });
+  const raw = await readBoundedRequestText(
+    new Request("https://pnlwise.test/api/events", {
+      method: "POST",
+      body: payload,
+    }),
+    MAX_API_BODY_BYTES,
+  );
+  assert.deepEqual(JSON.parse(raw), { name: "landing_view" });
+});
+
+test("bounded text reader rejects JSON over the API limit", async () => {
+  const payload = JSON.stringify({ value: "a".repeat(MAX_API_BODY_BYTES) });
+  await assert.rejects(
+    readBoundedRequestText(
+      new Request("https://pnlwise.test/api/events", {
+        method: "POST",
+        body: payload,
+      }),
+      MAX_API_BODY_BYTES,
+    ),
+    RequestBodyTooLargeError,
+  );
+});
+
+test("bounded text reader rejects streamed bytes without Content-Length", async () => {
+  await assert.rejects(
+    readBoundedRequestText(
+      streamedRequest("/api/events", [
+        new Uint8Array(MAX_API_BODY_BYTES),
+        new Uint8Array(1),
+      ]),
+      MAX_API_BODY_BYTES,
+    ),
+    RequestBodyTooLargeError,
+  );
+});
+
+test("actual bytes override understated or malformed Content-Length", async () => {
+  for (const contentLength of ["1", "not-a-number"]) {
+    await assert.rejects(
+      readBoundedRequestText(
+        streamedRequest(
+          "/api/events",
+          [new Uint8Array(MAX_API_BODY_BYTES + 1)],
+          { "Content-Length": contentLength },
+        ),
+        MAX_API_BODY_BYTES,
+      ),
+      RequestBodyTooLargeError,
+    );
+  }
+});
+
+test("overstated Content-Length is rejected before the body stream is read", async () => {
+  let pulled = false;
+  const request = new Request("https://pnlwise.test/api/events", {
+    method: "POST",
+    headers: { "Content-Length": String(MAX_API_BODY_BYTES + 1) },
+    body: new ReadableStream({
+      pull(controller) {
+        pulled = true;
+        controller.enqueue(new TextEncoder().encode("{}"));
+        controller.close();
+      },
+    }, { highWaterMark: 0 }),
+    duplex: "half",
+  } as RequestInit);
+  await assert.rejects(
+    readBoundedRequestText(request, MAX_API_BODY_BYTES),
+    RequestBodyTooLargeError,
+  );
+  assert.equal(pulled, false);
+});
+
+test("API limit counts UTF-8 bytes instead of JavaScript characters", async () => {
+  const payload = JSON.stringify({ value: "é".repeat(60_000) });
+  assert.ok(payload.length < MAX_API_BODY_BYTES);
+  assert.ok(new TextEncoder().encode(payload).byteLength > MAX_API_BODY_BYTES);
+  await assert.rejects(
+    readBoundedRequestText(
+      streamedRequest("/api/events", [new TextEncoder().encode(payload)]),
+      MAX_API_BODY_BYTES,
+    ),
+    RequestBodyTooLargeError,
+  );
+});
+
+test("webhook raw body is preserved and oversized webhook streams are rejected", async () => {
+  const payload = '{\n  "event_type": "transaction.completed",\n  "note": "café"\n}\n';
+  for (const path of ["/api/paddle/webhook", "/api/stripe/webhook"]) {
+    assert.equal(
+      await readBoundedRequestText(
+        streamedRequest(path, [new TextEncoder().encode(payload)]),
+        MAX_API_BODY_BYTES,
+      ),
+      payload,
+    );
+    await assert.rejects(
+      readBoundedRequestText(
+        streamedRequest(path, [new Uint8Array(MAX_API_BODY_BYTES + 1)]),
+        MAX_API_BODY_BYTES,
+      ),
+      RequestBodyTooLargeError,
+    );
+  }
+});
 
 test("upload body limit rejects an oversized stream without Content-Length", async () => {
   let canceled = false;

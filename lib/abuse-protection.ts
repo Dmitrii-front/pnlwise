@@ -1,5 +1,6 @@
 export const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
+export const MAX_API_BODY_BYTES = 100_000;
 
 export const EXPORT_RATE_LIMIT = 30;
 export const EXPORT_RATE_WINDOW_SECONDS = 60 * 60;
@@ -43,6 +44,15 @@ export async function readBoundedRequestBody(
     offset += chunk.byteLength;
   }
   return body;
+}
+
+export async function readBoundedRequestText(
+  request: Request,
+  maxBytes: number,
+) {
+  return new TextDecoder().decode(
+    await readBoundedRequestBody(request, maxBytes),
+  );
 }
 
 export async function boundedFormData(request: Request, maxBytes: number) {
