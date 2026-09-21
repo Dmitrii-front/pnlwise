@@ -23,6 +23,21 @@ npm run test:e2e
 
 Browser tests use an installed Google Chrome. `tests/fixtures/business.csv` contains synthetic data. Test outputs and browser screenshots are ignored under `outputs/` and `test-results/`.
 
+## Production deployment
+
+Use the tracked production deployment command:
+
+```sh
+npm run deploy:production
+```
+
+It builds the production Worker, then deploys `dist/server/wrangler.json` with
+`--keep-vars`. The generated Wrangler configuration intentionally contains no
+runtime variables; production Runtime Variables and Secrets are maintained in
+the Cloudflare Dashboard. `--keep-vars` is therefore mandatory so a deployment
+does not remove that Dashboard configuration. Do not run a direct production
+`wrangler deploy` command without it.
+
 ## Stack and boundaries
 
 - React, TypeScript, Next.js App Router APIs via Vinext, Tailwind, and shadcn primitives.
