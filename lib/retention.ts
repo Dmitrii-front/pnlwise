@@ -63,6 +63,32 @@ export async function runRetentionCleanup(
   };
 }
 
+export async function executeRetentionMaintenance(
+  cleanup: () => Promise<RetentionResult>,
+  diagnostic: (entry: RetentionDiagnostic) => void,
+) {
+  diagnostic({
+    event: "retention_cleanup_started",
+    stage: "maintenance.retention",
+  });
+  try {
+    const result = await cleanup();
+    diagnostic({
+      event: "retention_cleanup_completed",
+      stage: "maintenance.retention",
+      ...result,
+    });
+    return result;
+  } catch {
+    diagnostic({
+      event: "retention_cleanup_failed",
+      stage: "maintenance.retention",
+      code: "RETENTION_MAINTENANCE_FAILED",
+    });
+    throw new Error("RETENTION_MAINTENANCE_FAILED");
+  }
+}
+
 export function validMaintenanceSecret(secret: string | undefined) {
   return (
     !!secret && secret.length >= 32 && !/[\s\u0000-\u001f\u007f]/.test(secret)
@@ -85,24 +111,6 @@ export async function invokeRetentionMaintenance(
   if (!validMaintenanceSecret(secret)) return { status: 503 };
   if (!maintenanceAuthorized(authorization, secret)) return { status: 401 };
 
-  diagnostic({
-    event: "retention_cleanup_started",
-    stage: "maintenance.retention",
-  });
-  try {
-    const result = await cleanup();
-    diagnostic({
-      event: "retention_cleanup_completed",
-      stage: "maintenance.retention",
-      ...result,
-    });
-    return { status: 200, result };
-  } catch (error) {
-    diagnostic({
-      event: "retention_cleanup_failed",
-      stage: "maintenance.retention",
-      code: "RETENTION_MAINTENANCE_FAILED",
-    });
-    throw error;
-  }
+  const result = await executeRetentionMaintenance(cleanup, diagnostic);
+  return { status: 200, result };
 }

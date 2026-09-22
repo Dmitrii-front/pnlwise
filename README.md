@@ -104,7 +104,7 @@ Server-side operational failures are sent to Sentry only when marked `alertable`
 - Same-origin mutation checks, prepared statements, private/no-store API responses, and server-side export authorization.
 - Raw statements are discarded immediately after reading, including failed requests.
 - Anonymous and linked report access expires after the configured period (30 days by default).
-- Expired records are deleted in bounded batches on report creation. For timely deletion during idle periods, schedule an authenticated POST to `/api/maintenance` using `MAINTENANCE_SECRET`. Ordinary analytics older than 90 days and expired rate-limit buckets are cleaned there too; payment completion audit events are preserved.
+- Expired records are deleted in bounded batches on report creation and by the production Cloudflare Cron Trigger at 03:17 UTC daily. The scheduled Worker calls retention directly without a maintenance secret; authenticated POST `/api/maintenance` remains available for manual recovery. Purchases in `creating` or `pending` continue to protect expired report data until Paddle terminality can be established safely. Payment records and payment completion audit events are preserved. Ordinary analytics older than 90 days and expired rate-limit buckets are also cleaned.
 - Delete My Data removes reports, normalized transactions, statements, and merchant rules in the current session and linked account. Minimal payment records remain separate.
 - Deletion does not promise instantaneous erasure of infrastructure backups. Provider backup policies and the final legal retention policy need review before launch.
 
@@ -114,7 +114,7 @@ Server-side operational failures are sent to Sentry only when marked `alertable`
 2. Choose public production hosting/access and update the central canonical origin. Private preview publication does not expose anonymous public access or SEO indexing.
 3. Configure and test Paddle Sandbox checkout → `transaction.completed` webhook delivery → paid downloads. Live Paddle remains disabled.
 4. Configure optional OpenAI and Supabase Auth; test real providers before describing them as live.
-5. Schedule retention cleanup and error alerts; perform real-bank parsing QA and a security review.
+5. Verify retention Cron Events and error alerts; perform real-bank parsing QA and a security review.
 6. Register Google Search Console and Bing Webmaster Tools after public deployment.
 
 The preview is a runnable implementation, not a claim of commercial launch readiness or universal PDF parsing accuracy.

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
+  executeRetentionMaintenance,
   invokeRetentionMaintenance,
   maintenanceAuthorized,
   retentionSql,
@@ -10,6 +11,7 @@ import {
   type RetentionDiagnostic,
   type RetentionStore,
 } from "../lib/retention";
+import { createWorkerHandler } from "../worker/handler";
 
 class MemoryRetentionStore implements RetentionStore {
   expired: string[];
@@ -210,6 +212,81 @@ test("retention protects active payable reports and preserves payment records", 
   );
 });
 
+test("scheduled worker delegates fetch and runs privacy-safe idempotent cleanup without a secret", async () => {
+  const response = new Response("delegated");
+  const calls: unknown[][] = [];
+  let cleanupRuns = 0;
+  const diagnostics: RetentionDiagnostic[] = [];
+  const worker = createWorkerHandler(
+    {
+      fetch: (...args) => {
+        calls.push(args);
+        return response;
+      },
+    },
+    async () => {
+      cleanupRuns++;
+      return { removed: cleanupRuns === 1 ? 2 : 0, batches: 1, remaining: false };
+    },
+    (entry) => diagnostics.push(entry),
+  );
+  const request = new Request(
+    "https://pnlwise.test/",
+  ) as Parameters<NonNullable<ExportedHandler["fetch"]>>[0];
+  const environment = {};
+  const context = {} as ExecutionContext;
+
+  assert.equal(await worker.fetch!(request, environment, context), response);
+  assert.deepEqual(calls, [[request, environment, context]]);
+  await worker.scheduled!({} as ScheduledController, environment, context);
+  await worker.scheduled!({} as ScheduledController, environment, context);
+  assert.equal(cleanupRuns, 2);
+  assert.deepEqual(diagnostics, [
+    { event: "retention_cleanup_started", stage: "maintenance.retention" },
+    {
+      event: "retention_cleanup_completed",
+      stage: "maintenance.retention",
+      removed: 2,
+      batches: 1,
+      remaining: false,
+    },
+    { event: "retention_cleanup_started", stage: "maintenance.retention" },
+    {
+      event: "retention_cleanup_completed",
+      stage: "maintenance.retention",
+      removed: 0,
+      batches: 1,
+      remaining: false,
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(diagnostics),
+    /secret|authorization|statement|transaction/i,
+  );
+});
+
+test("scheduled maintenance emits a safe failure code and rejects", async () => {
+  const diagnostics: RetentionDiagnostic[] = [];
+  await assert.rejects(
+    executeRetentionMaintenance(
+      async () => {
+        throw new Error("private database detail");
+      },
+      (entry) => diagnostics.push(entry),
+    ),
+    /RETENTION_MAINTENANCE_FAILED/,
+  );
+  assert.deepEqual(diagnostics, [
+    { event: "retention_cleanup_started", stage: "maintenance.retention" },
+    {
+      event: "retention_cleanup_failed",
+      stage: "maintenance.retention",
+      code: "RETENTION_MAINTENANCE_FAILED",
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private database detail/);
+});
+
 test("unauthorized maintenance invocation fails closed", () => {
   const secret = "a-secure-maintenance-secret-value-123";
   assert.equal(maintenanceAuthorized(null, secret), false);
@@ -292,7 +369,7 @@ test("maintenance failure emits a stable privacy-safe diagnostic", async () => {
       },
       (entry) => diagnostics.push(entry),
     ),
-    /synthetic failure/,
+    /RETENTION_MAINTENANCE_FAILED/,
   );
   assert.deepEqual(diagnostics, [
     {

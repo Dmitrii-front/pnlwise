@@ -16,6 +16,8 @@ const cloudflareDatabases = {
   },
 } as const;
 
+export const PRODUCTION_RETENTION_CRON = "17 3 * * *";
+
 const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
@@ -27,8 +29,11 @@ export default defineConfig(async ({ command, mode }) => {
     command === "build" && mode !== "staging" ? "production" : "staging";
   const database = cloudflareDatabases[databaseTarget];
   const bindingConfig = {
-    main: "vinext/server/fetch-handler",
+    main: "./worker/index.ts",
     compatibility_flags: ["nodejs_compat"],
+    ...(databaseTarget === "production"
+      ? { triggers: { crons: [PRODUCTION_RETENTION_CRON] } }
+      : {}),
     d1_databases: d1
       ? [
           {

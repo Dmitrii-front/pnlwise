@@ -5,12 +5,49 @@ import test from "node:test";
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { scripts?: Record<string, string> };
+const viteConfig = readFileSync(
+  new URL("../vite.config.ts", import.meta.url),
+  "utf8",
+);
+const workerEntry = readFileSync(
+  new URL("../worker/index.ts", import.meta.url),
+  "utf8",
+);
+const reportCreationRoute = readFileSync(
+  new URL("../app/api/reports/route.ts", import.meta.url),
+  "utf8",
+);
 
 test("production deployment builds and preserves Dashboard runtime variables", () => {
   assert.equal(
     packageJson.scripts?.["deploy:production"],
     "npm run build && npx wrangler deploy --config dist/server/wrangler.json --keep-vars",
   );
+});
+
+test("production alone receives the tracked daily retention cron", () => {
+  assert.match(viteConfig, /PRODUCTION_RETENTION_CRON = "17 3 \* \* \*"/);
+  assert.match(viteConfig, /database_name: "pnlwise-production"/);
+  assert.match(
+    viteConfig,
+    /database_id: "a745b082-7c95-4cfe-b0d1-bdafff77d195"/,
+  );
+  assert.match(
+    viteConfig,
+    /databaseTarget === "production"[\s\S]*?triggers: \{ crons: \[PRODUCTION_RETENTION_CRON\] \}/,
+  );
+  assert.match(viteConfig, /main: "\.\/worker\/index\.ts"/);
+  assert.doesNotMatch(viteConfig, /staging[\s\S]{0,80}PRODUCTION_RETENTION_CRON/);
+});
+
+test("custom Worker delegates HTTP and schedules direct retention cleanup", () => {
+  assert.match(workerEntry, /createWorkerHandler\(/);
+  assert.match(workerEntry, /cleanupExpired\(true\)/);
+  assert.doesNotMatch(workerEntry, /MAINTENANCE_SECRET|\/api\/maintenance|fetch\s*\(/);
+});
+
+test("report creation retains opportunistic cleanup", () => {
+  assert.match(reportCreationRoute, /guardOrigin\(req\);\s*await cleanupExpired\(\);/);
 });
 
 test("every tracked Wrangler deploy command preserves Dashboard runtime variables", () => {
