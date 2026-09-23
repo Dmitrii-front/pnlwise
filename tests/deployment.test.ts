@@ -27,6 +27,10 @@ test("production deployment builds and preserves Dashboard runtime variables", (
 
 test("production alone receives the tracked daily retention cron", () => {
   assert.match(viteConfig, /PRODUCTION_RETENTION_CRON = "17 3 \* \* \*"/);
+  assert.match(
+    viteConfig,
+    /command === "build" && mode !== "staging" \? "production" : "staging"/,
+  );
   assert.match(viteConfig, /database_name: "pnlwise-production"/);
   assert.match(
     viteConfig,
