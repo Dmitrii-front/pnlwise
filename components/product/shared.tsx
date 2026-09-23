@@ -115,7 +115,6 @@ export function Footer() {
             <a href="/privacy">Privacy</a>
             <a href="/refund-policy">Refund Policy</a>
             <a href="/terms">Terms</a>
-            <a href="/sign-in">Sign in</a>
           </nav>
         </div>
         <p className="disclaimer">{disclaimer}</p>

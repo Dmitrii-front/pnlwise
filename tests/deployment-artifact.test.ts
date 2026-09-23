@@ -128,13 +128,21 @@ test(
     build();
     const config = await generatedConfig();
 
-    await context.test("production contains canonical routing, cron, DB, and no vars", () => {
+    await context.test("production contains canonical routing, cron, DB, and assets", async () => {
       assert.equal(config.workers_dev, false);
       assert.equal(config.preview_urls, true);
       assert.deepEqual(config.triggers?.crons, ["17 3 * * *"]);
       assert.deepEqual(config.d1_databases, [productionDatabase]);
       assert.deepEqual(config.vars, {});
       assert.equal(config.main, "index.js");
+      assert.deepEqual(
+        [...(await readFile(join(projectRoot, "dist/client/favicon.ico"))).subarray(0, 4)],
+        [0, 0, 1, 0],
+      );
+      assert.match(
+        await readFile(join(projectRoot, "dist/client/favicon.svg"), "utf8"),
+        /^<svg /,
+      );
     });
 
     await context.test(
@@ -191,6 +199,9 @@ test(
             html,
             /<link rel="canonical" href="https:\/\/pnlwise\.com"\s*\/>/,
           );
+          assert.match(html, /<link rel="icon" href="\/favicon\.svg"/);
+          assert.match(html, /<link rel="icon" href="\/favicon\.ico"/);
+          assert.match(html, /<link rel="shortcut icon" href="\/favicon\.ico"/);
           assert.match(html, /"url":"https:\/\/pnlwise\.com"/);
           assert.doesNotMatch(
             html,
