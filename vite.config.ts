@@ -32,7 +32,11 @@ export default defineConfig(async ({ command, mode }) => {
     main: "./worker/index.ts",
     compatibility_flags: ["nodejs_compat"],
     ...(databaseTarget === "production"
-      ? { triggers: { crons: [PRODUCTION_RETENTION_CRON] } }
+      ? {
+          workers_dev: false,
+          preview_urls: true,
+          triggers: { crons: [PRODUCTION_RETENTION_CRON] },
+        }
       : {}),
     d1_databases: d1
       ? [

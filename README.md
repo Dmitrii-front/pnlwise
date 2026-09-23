@@ -38,6 +38,12 @@ the Cloudflare Dashboard. `--keep-vars` is therefore mandatory so a deployment
 does not remove that Dashboard configuration. Do not run a direct production
 `wrangler deploy` command without it.
 
+Production builds disable the stable `workers.dev` URL while retaining version
+preview URLs. The Dashboard-managed `pnlwise.com` Custom Domain remains the
+public application route. Public SEO URLs use the tracked canonical origin
+`https://pnlwise.com`; `APP_ORIGIN` remains a separate runtime setting for
+checkout and external callbacks.
+
 ## Stack and boundaries
 
 - React, TypeScript, Next.js App Router APIs via Vinext, Tailwind, and shadcn primitives.
@@ -49,7 +55,7 @@ does not remove that Dashboard configuration. Do not run a direct production
 
 ## Product and legal configuration
 
-`lib/config.ts` is the single source of public product defaults. `.env.example` lists build-time `NEXT_PUBLIC_*` overrides and server-only settings. Change service name, site URL, price, retention days, and confidence thresholds there. Rebuild after changing public settings so visible prices and server checkout amounts remain identical.
+`lib/config.ts` is the single source of public product defaults and the canonical production origin. `.env.example` lists build-time `NEXT_PUBLIC_*` overrides and server-only settings. Change service name, price, retention days, and confidence thresholds there. Rebuild after changing public settings so visible prices and server checkout amounts remain identical.
 
 `LEGAL_OPERATOR_NAME` and `SUPPORT_EMAIL` are required runtime settings for payment-enabled environments. They must identify the verified service operator and a monitored support mailbox. Missing or invalid values disable checkout and legal pages show a noncommercial configuration notice. Secrets must never use the `NEXT_PUBLIC_` prefix, enter Git, or appear in client code.
 

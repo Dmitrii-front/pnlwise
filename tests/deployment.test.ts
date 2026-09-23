@@ -38,10 +38,16 @@ test("production alone receives the tracked daily retention cron", () => {
   );
   assert.match(
     viteConfig,
-    /databaseTarget === "production"[\s\S]*?triggers: \{ crons: \[PRODUCTION_RETENTION_CRON\] \}/,
+    /databaseTarget === "production"[\s\S]*?workers_dev: false,[\s\S]*?preview_urls: true,[\s\S]*?triggers: \{ crons: \[PRODUCTION_RETENTION_CRON\] \}/,
   );
   assert.match(viteConfig, /main: "\.\/worker\/index\.ts"/);
   assert.doesNotMatch(viteConfig, /staging[\s\S]{0,80}PRODUCTION_RETENTION_CRON/);
+});
+
+test("production disables its stable workers.dev URL and preserves previews", () => {
+  assert.match(viteConfig, /workers_dev: false/);
+  assert.match(viteConfig, /preview_urls: true/);
+  assert.doesNotMatch(viteConfig, /pnlwise\.d-nadtochii-dev\.workers\.dev/);
 });
 
 test("custom Worker delegates HTTP and schedules direct retention cleanup", () => {

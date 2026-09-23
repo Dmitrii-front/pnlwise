@@ -13,12 +13,12 @@ function bounded(
     ? n
     : fallback;
 }
+export const PUBLIC_SITE_ORIGIN = "https://pnlwise.com";
+
 /** Public product defaults. Override NEXT_PUBLIC_* at build time; never put secrets here. */
 export const config = {
   name: process.env.NEXT_PUBLIC_SERVICE_NAME || "Pnlwise",
-  siteUrl:
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://example.invalid",
+  siteUrl: PUBLIC_SITE_ORIGIN,
   priceCents: bounded(
     process.env.NEXT_PUBLIC_REPORT_PRICE_CENTS,
     1299,

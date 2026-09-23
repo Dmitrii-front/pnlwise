@@ -23,6 +23,8 @@ const stagingDatabase = {
 
 interface GeneratedWranglerConfig {
   main: string;
+  workers_dev?: boolean;
+  preview_urls?: boolean;
   triggers?: { crons?: string[] };
   d1_databases?: typeof productionDatabase[];
   vars?: Record<string, unknown>;
@@ -119,12 +121,16 @@ test(
       assert.deepEqual(config.d1_databases, [stagingDatabase]);
       assert.notDeepEqual(config.d1_databases, [productionDatabase]);
       assert.deepEqual(config.vars, {});
+      assert.equal(config.workers_dev, undefined);
+      assert.equal(config.preview_urls, undefined);
     });
 
     build();
     const config = await generatedConfig();
 
-    await context.test("production contains one cron, one production DB, and no vars", () => {
+    await context.test("production contains canonical routing, cron, DB, and no vars", () => {
+      assert.equal(config.workers_dev, false);
+      assert.equal(config.preview_urls, true);
       assert.deepEqual(config.triggers?.crons, ["17 3 * * *"]);
       assert.deepEqual(config.d1_databases, [productionDatabase]);
       assert.deepEqual(config.vars, {});
@@ -177,6 +183,39 @@ test(
           assert.equal(response.status, 200);
           const payload = (await response.json()) as { priceCents: unknown };
           assert.equal(typeof payload.priceCents, "number");
+
+          const page = await miniflare.dispatchFetch("http://pnlwise.test/");
+          assert.equal(page.status, 200);
+          const html = await page.text();
+          assert.match(
+            html,
+            /<link rel="canonical" href="https:\/\/pnlwise\.com"\s*\/>/,
+          );
+          assert.match(html, /"url":"https:\/\/pnlwise\.com"/);
+          assert.doesNotMatch(
+            html,
+            /clearledger-pnl\.to4ka-gr\.chatgpt\.site/,
+          );
+
+          const sitemap = await miniflare.dispatchFetch(
+            "http://pnlwise.test/sitemap.xml",
+          );
+          assert.equal(sitemap.status, 200);
+          const sitemapXml = await sitemap.text();
+          assert.match(sitemapXml, /<loc>https:\/\/pnlwise\.com\//);
+          assert.doesNotMatch(
+            sitemapXml,
+            /clearledger-pnl\.to4ka-gr\.chatgpt\.site/,
+          );
+
+          const robots = await miniflare.dispatchFetch(
+            "http://pnlwise.test/robots.txt",
+          );
+          assert.equal(robots.status, 200);
+          assert.match(
+            await robots.text(),
+            /Sitemap: https:\/\/pnlwise\.com\/sitemap\.xml/,
+          );
 
           const worker = await miniflare.getWorker();
           const first = await worker.scheduled({
