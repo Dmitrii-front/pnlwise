@@ -57,7 +57,13 @@ test("custom Worker delegates HTTP and schedules direct retention cleanup", () =
 });
 
 test("report creation retains opportunistic cleanup", () => {
-  assert.match(reportCreationRoute, /guardOrigin\(req\);\s*await cleanupExpired\(\);/);
+  assert.match(reportCreationRoute, /requireNonAiBudget\("report_create"\)/);
+  assert.match(reportCreationRoute, /persistWithGrowthReservation/);
+  assert.match(reportCreationRoute, /cleanupExpired\(\)/);
+  assert.ok(
+    reportCreationRoute.indexOf('requireNonAiBudget("report_create")') <
+      reportCreationRoute.indexOf("cleanupExpired()"),
+  );
 });
 
 test("every tracked Wrangler deploy command preserves Dashboard runtime variables", () => {

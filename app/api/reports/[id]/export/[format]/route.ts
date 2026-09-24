@@ -13,9 +13,6 @@ export const GET = (
   api(
     async () => {
       const { id, format } = await params;
-      const report = await getReport(id);
-      const access = exportAccess(report);
-      if (!access.allowed) throw new AppError(access.message, access.status);
       if (!["pdf", "xlsx", "csv"].includes(format))
         throw new AppError("Choose PDF, Excel, or CSV.", 404);
       await sessionRate(
@@ -24,6 +21,9 @@ export const GET = (
         EXPORT_RATE_LIMIT,
         EXPORT_RATE_WINDOW_SECONDS,
       );
+      const report = await getReport(id);
+      const access = exportAccess(report);
+      if (!access.allowed) throw new AppError(access.message, access.status);
       let bytes;
       try {
         bytes =

@@ -11,12 +11,16 @@ import {
   track,
   AppError,
   cleanupExpired,
+  globalBudgetExhaustedError,
+  releaseNonAiBudget,
+  requireNonAiBudget,
+  reserveReportGrowth,
 } from "@/lib/server";
 import { businessTypes, validDate, type Report } from "@/lib/domain";
+import { persistWithGrowthReservation } from "@/lib/non-ai-budget";
 export const POST = (req: Request) =>
   api(async () => {
     guardOrigin(req);
-    await cleanupExpired();
     await sessionRate(req, "create", 15);
     const input = await body(req);
     if (!businessTypes.includes(input.businessType))
@@ -43,20 +47,33 @@ export const POST = (req: Request) =>
       warnings: [],
       rules: {},
     };
+    await requireNonAiBudget("report_create");
     const days = Math.max(1, Math.min(365, config.retentionDays));
-    await db()
-      .prepare(
-        "INSERT INTO reports(id,session_hash,user_id,data,revision,paid,created_at,expires_at) VALUES(?,?,?,?,0,0,?,?)",
-      )
-      .bind(
-        report.id,
-        await session(),
-        (await accountUser())?.id || null,
-        JSON.stringify(report),
-        Date.now(),
-        Date.now() + days * 86400000,
-      )
-      .run();
+    const data = JSON.stringify(report);
+    const persisted = await persistWithGrowthReservation({
+      previousBytes: 0,
+      nextBytes: new TextEncoder().encode(data).byteLength,
+      reserve: reserveReportGrowth,
+      release: releaseNonAiBudget,
+      persist: async () => {
+        await cleanupExpired();
+        const now = Date.now();
+        return db()
+          .prepare(
+            "INSERT INTO reports(id,session_hash,user_id,data,revision,paid,created_at,expires_at) VALUES(?,?,?,?,0,0,?,?)",
+          )
+          .bind(
+            report.id,
+            await session(),
+            (await accountUser())?.id || null,
+            data,
+            now,
+            now + days * 86400000,
+          )
+          .run();
+      },
+    });
+    if (persisted.exhausted) throw globalBudgetExhaustedError();
     await track("upload_started", { businessType: report.businessType });
     return json({ report }, 201);
   });

@@ -12,6 +12,7 @@ import {
   claimAiBudget,
   claimReportProcessing,
   releaseReportProcessing,
+  requireNonAiBudget,
 } from "@/lib/server";
 import {
   classify,
@@ -50,6 +51,7 @@ export const POST = (
         report = await getReport(id);
         if (input.stage !== report.stage) return json({ report });
         if (report.stage >= 6) return json({ report });
+        await requireNonAiBudget("process");
         switch (report.stage) {
           case 0:
             await track("analysis_started", {

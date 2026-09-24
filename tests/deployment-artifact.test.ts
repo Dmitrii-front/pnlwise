@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare, type ModuleDefinition } from "miniflare";
 import test from "node:test";
+import { NON_AI_BUDGETS } from "../lib/non-ai-budget";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const serverRoot = join(projectRoot, "dist/server");
@@ -275,6 +276,255 @@ test(
                 .first<{ count: number }>()
             )?.count,
             3,
+          );
+        } finally {
+          await miniflare.dispose();
+        }
+      },
+    );
+
+    await context.test(
+      "generated Worker enforces non-AI budgets without blocking owned recovery",
+      async () => {
+        const entryPath = join(serverRoot, config.main);
+        const moduleFiles = await javascriptModules(serverRoot);
+        const modules: ModuleDefinition[] = [
+          entryPath,
+          ...moduleFiles.filter((path) => path !== entryPath),
+        ].map((path) => ({ type: "ESModule", path }));
+        const miniflare = new Miniflare({
+          modules,
+          modulesRoot: serverRoot,
+          compatibilityDate: "2026-05-15",
+          compatibilityFlags: ["nodejs_compat"],
+          d1Databases: { DB: "abu003-integration" },
+        });
+
+        const post = (
+          path: string,
+          body: string | ArrayBuffer,
+          cookie?: string,
+          headers: HeadersInit = {},
+        ) =>
+          miniflare.dispatchFetch(`http://pnlwise.test${path}`, {
+            method: "POST",
+            headers: {
+              Origin: "http://pnlwise.test",
+              ...(cookie ? { Cookie: cookie } : {}),
+              ...headers,
+            },
+            body,
+          });
+
+        try {
+          const database = await miniflare.getD1Database("DB");
+          await applyMigrations(database);
+
+          const eventResponse = await post(
+            "/api/events",
+            JSON.stringify({ name: "landing_view" }),
+            undefined,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(eventResponse.status, 200);
+          assert.equal(
+            (
+              await database
+                .prepare("SELECT COUNT(*) AS count FROM events WHERE name='landing_view'")
+                .first<{ count: number }>()
+            )?.count,
+            1,
+          );
+          await database
+            .prepare(
+              "UPDATE rate_limits SET count=CASE WHEN key LIKE '%:hour:%' THEN ? ELSE ? END WHERE key LIKE 'abuse:public_events:%'",
+            )
+            .bind(
+              NON_AI_BUDGETS.public_events.hourly,
+              NON_AI_BUDGETS.public_events.daily,
+            )
+            .run();
+          const dropped = await post(
+            "/api/events",
+            JSON.stringify({ name: "landing_view" }),
+            undefined,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(dropped.status, 200);
+          assert.equal(
+            (
+              await database
+                .prepare("SELECT COUNT(*) AS count FROM events WHERE name='landing_view'")
+                .first<{ count: number }>()
+            )?.count,
+            1,
+          );
+
+          const created = await post(
+            "/api/reports",
+            JSON.stringify({
+              businessName: "Synthetic Test",
+              businessType: "Other",
+              periodStart: "2026-01-01",
+              periodEnd: "2026-12-31",
+            }),
+            undefined,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(created.status, 201);
+          const cookie = created.headers.get("set-cookie")?.split(";", 1)[0];
+          assert.ok(cookie);
+          const createdPayload = (await created.json()) as {
+            report: { id: string };
+          };
+
+          await insertReport(database, "expired-create-order", Date.now() - 1);
+          await database
+            .prepare(
+              "UPDATE rate_limits SET count=CASE WHEN key LIKE '%:hour:%' THEN ? ELSE ? END WHERE key LIKE 'abuse:report_create:%'",
+            )
+            .bind(
+              NON_AI_BUDGETS.report_create.hourly,
+              NON_AI_BUDGETS.report_create.daily,
+            )
+            .run();
+          const rejectedCreate = await post(
+            "/api/reports",
+            JSON.stringify({ businessType: "Other" }),
+            cookie,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(rejectedCreate.status, 429);
+          assert.ok(
+            await database
+              .prepare("SELECT 1 FROM reports WHERE id='expired-create-order'")
+              .first(),
+          );
+          await database
+            .prepare(
+              "DELETE FROM rate_limits WHERE key LIKE 'abuse:report_create:%'",
+            )
+            .run();
+          const admittedCreate = await post(
+            "/api/reports",
+            JSON.stringify({ businessType: "Other" }),
+            cookie,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(admittedCreate.status, 201);
+          assert.equal(
+            await database
+              .prepare("SELECT 1 FROM reports WHERE id='expired-create-order'")
+              .first(),
+            null,
+          );
+
+          const upload = async (description: string, ownerCookie?: string) => {
+            const form = new FormData();
+            form.set("reportId", createdPayload.report.id);
+            form.set("account", "checking");
+            form.set(
+              "mapping",
+              JSON.stringify({
+                date: "Date",
+                description: "Description",
+                amount: "Amount",
+                convention: "credit-positive",
+              }),
+            );
+            form.set(
+              "file",
+              new File(
+                [`Date,Description,Amount\n2026-01-01,${description},-12.34\n`],
+                `${description}.csv`,
+                { type: "text/csv" },
+              ),
+            );
+            const encoded = new Request("http://pnlwise.test", {
+              method: "POST",
+              body: form,
+            });
+            return post(
+              "/api/statements/upload",
+              await encoded.arrayBuffer(),
+              ownerCookie,
+              { "Content-Type": encoded.headers.get("content-type")! },
+            );
+          };
+
+          const parserCount = async () =>
+            Number(
+              (
+                await database
+                  .prepare(
+                    "SELECT COALESCE(SUM(count),0) AS count FROM rate_limits WHERE key LIKE 'abuse:parser:%'",
+                  )
+                  .first<{ count: number }>()
+              )?.count || 0,
+            );
+          const beforeUnowned = await parserCount();
+          assert.equal((await upload("UNOWNED")).status, 404);
+          assert.equal(await parserCount(), beforeUnowned);
+
+          const accepted = await upload("OFFICE SUPPLIES", cookie);
+          assert.equal(accepted.status, 200);
+          assert.equal(await parserCount(), beforeUnowned + 2);
+          await database
+            .prepare(
+              "UPDATE rate_limits SET count=CASE WHEN key LIKE '%:hour:%' THEN ? ELSE ? END WHERE key LIKE 'abuse:parser:%'",
+            )
+            .bind(
+              NON_AI_BUDGETS.parser.hourly,
+              NON_AI_BUDGETS.parser.daily,
+            )
+            .run();
+          assert.equal((await upload("SECOND FILE", cookie)).status, 429);
+
+          const staleProcess = await post(
+            `/api/reports/${createdPayload.report.id}/process`,
+            JSON.stringify({ stage: 99 }),
+            cookie,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(staleProcess.status, 200);
+          assert.equal(
+            (
+              await database
+                .prepare(
+                  "SELECT COUNT(*) AS count FROM rate_limits WHERE key LIKE 'abuse:process:%'",
+                )
+                .first<{ count: number }>()
+            )?.count,
+            0,
+          );
+          const advanced = await post(
+            `/api/reports/${createdPayload.report.id}/process`,
+            JSON.stringify({ stage: 0 }),
+            cookie,
+            { "Content-Type": "application/json" },
+          );
+          assert.equal(advanced.status, 200);
+          assert.equal(
+            (
+              await database
+                .prepare(
+                  "SELECT COUNT(*) AS count FROM rate_limits WHERE key LIKE 'abuse:process:%'",
+                )
+                .first<{ count: number }>()
+            )?.count,
+            2,
+          );
+
+          assert.ok(
+            Number(
+              (
+                await database
+                  .prepare(
+                    "SELECT COALESCE(SUM(count),0) AS count FROM rate_limits WHERE key LIKE 'abuse:report_growth:%'",
+                  )
+                  .first<{ count: number }>()
+              )?.count || 0,
+            ) > 0,
           );
         } finally {
           await miniflare.dispose();

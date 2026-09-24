@@ -8,6 +8,7 @@ import {
   sha256,
   AppError,
   track,
+  requireNonAiBudget,
 } from "@/lib/server";
 import {
   parseCsv,
@@ -20,6 +21,7 @@ import {
   boundedFormData,
   MAX_UPLOAD_BODY_BYTES,
   MAX_UPLOAD_FILE_BYTES,
+  MAX_REPORT_TRANSACTIONS,
   RequestBodyTooLargeError,
 } from "@/lib/abuse-protection";
 export const POST = (req: Request) =>
@@ -65,11 +67,6 @@ export const POST = (req: Request) =>
         );
       if (report.statements.length >= 24)
         throw new AppError("Use up to 24 statements per report.");
-      const bytes = await file.arrayBuffer(),
-        hash = await sha256(bytes);
-      if (report.statements.some((s) => s.hash === hash))
-        return json({ report, duplicate: true });
-      const id = crypto.randomUUID();
       let mapping: Mapping | undefined;
       try {
         if (form.get("mapping"))
@@ -77,6 +74,12 @@ export const POST = (req: Request) =>
       } catch {
         throw new AppError("Choose valid column mappings.");
       }
+      await requireNonAiBudget("parser");
+      const bytes = await file.arrayBuffer(),
+        hash = await sha256(bytes);
+      if (report.statements.some((s) => s.hash === hash))
+        return json({ report, duplicate: true });
+      const id = crypto.randomUUID();
       try {
         const rows =
           ext === "csv"
@@ -88,7 +91,10 @@ export const POST = (req: Request) =>
             : ext === "xlsx"
               ? await parseXlsx(bytes, id, mapping)
               : await parsePdf(bytes, id);
-        if (report.transactions.length + rows.length > 5000)
+        if (
+          report.transactions.length + rows.length >
+          MAX_REPORT_TRANSACTIONS
+        )
           throw new AppError(
             "Use up to 5,000 transactions per report. Split your reporting period.",
           );

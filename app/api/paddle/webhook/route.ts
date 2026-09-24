@@ -47,11 +47,7 @@ export const POST = (req: Request) =>
         await fulfillPaddleTransaction(event as TransactionCompletedEvent);
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw new AppError("Invalid Paddle webhook.", 400, undefined, {
-        code: "PADDLE_WEBHOOK_SIGNATURE_INVALID",
-        stage: "paddle.webhook.verification",
-        alertable: true,
-      });
+      throw new AppError("Invalid Paddle webhook.", 400);
     }
     return json({ received: true });
   });

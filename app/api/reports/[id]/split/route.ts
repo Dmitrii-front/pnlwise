@@ -6,15 +6,18 @@ import {
   getReport,
   saveReport,
   AppError,
+  sessionRate,
 } from "@/lib/server";
 import { setCategory } from "@/lib/domain";
 import { cents } from "@/lib/parsing";
+import { MAX_REPORT_TRANSACTIONS } from "@/lib/abuse-protection";
 export const POST = (
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) =>
   api(async () => {
     guardOrigin(req);
+    await sessionRate(req, "edit", 500);
     const { id } = await params;
     const report = await getReport(id),
       input = await body(req);
@@ -56,6 +59,10 @@ export const POST = (
     report.transactions = report.transactions.flatMap((r) =>
       r.id === t.id ? [principal, interestTx] : [r],
     );
+    if (report.transactions.length > MAX_REPORT_TRANSACTIONS)
+      throw new AppError(
+        "Use up to 5,000 transactions per report. Split your reporting period.",
+      );
     report.status = "review";
     return json({ report: await saveReport(report) });
   });

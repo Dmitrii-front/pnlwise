@@ -1,6 +1,7 @@
 export const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
 export const MAX_API_BODY_BYTES = 100_000;
+export const MAX_REPORT_TRANSACTIONS = 5_000;
 
 export const EXPORT_RATE_LIMIT = 30;
 export const EXPORT_RATE_WINDOW_SECONDS = 60 * 60;

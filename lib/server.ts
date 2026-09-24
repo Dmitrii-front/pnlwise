@@ -31,6 +31,21 @@ import {
   aiBudgetSql,
   exhaustedAiBudget,
 } from "./ai-budget";
+import {
+  ABUSE_EXHAUSTION_OBSERVATION_LIMIT,
+  emitAbuseBudgetObservation,
+  exhaustedNonAiBudget,
+  nonAiBudgetAcquireBindings,
+  nonAiBudgetEntries,
+  nonAiBudgetSql,
+  nonAiExhaustionObservation,
+  persistWithGrowthReservation,
+  shouldEmitAbuseObservation,
+  type NonAiBudgetCircuit,
+  type NonAiBudgetEntry,
+} from "./non-ai-budget";
+
+export const MAX_REPORT_DATA_BYTES = 1_800_000;
 export class AppError extends Error {
   constructor(
     message: string,
@@ -122,22 +137,45 @@ export async function saveReport(report: Report) {
   const user = await accountUser();
   const revision = report.revision;
   const next = { ...report, revision: revision + 1 };
-  if (new TextEncoder().encode(JSON.stringify(next)).byteLength > 1800000)
+  const data = JSON.stringify(next);
+  const nextBytes = new TextEncoder().encode(data).byteLength;
+  if (nextBytes > MAX_REPORT_DATA_BYTES)
     throw new AppError(
       "This report contains too much transaction detail. Split it into smaller reporting periods.",
       413,
     );
-  const result = await db()
+  const stored = await db()
     .prepare(
-      "UPDATE reports SET data=?,revision=revision+1 WHERE id=? AND (session_hash=? OR user_id=?) AND revision=?",
+      "SELECT length(CAST(data AS BLOB)) AS data_bytes FROM reports WHERE id=? AND (session_hash=? OR user_id=?) AND revision=? AND expires_at>?",
     )
-    .bind(JSON.stringify(next), report.id, owner, user?.id || "", revision)
-    .run();
-  if (!result.meta.changes)
+    .bind(report.id, owner, user?.id || "", revision, Date.now())
+    .first<{ data_bytes: number }>();
+  if (!stored)
     throw new AppError(
       "This report changed in another tab. Refresh and try again.",
       409,
     );
+  const persisted = await persistWithGrowthReservation({
+    previousBytes: Number(stored.data_bytes),
+    nextBytes,
+    reserve: reserveReportGrowth,
+    release: releaseNonAiBudget,
+    persist: async () => {
+      const result = await db()
+        .prepare(
+          "UPDATE reports SET data=?,revision=revision+1 WHERE id=? AND (session_hash=? OR user_id=?) AND revision=?",
+        )
+        .bind(data, report.id, owner, user?.id || "", revision)
+        .run();
+      if (!result.meta.changes)
+        throw new AppError(
+          "This report changed in another tab. Refresh and try again.",
+          409,
+        );
+      return next;
+    },
+  });
+  if (persisted.exhausted) throw globalBudgetExhaustedError();
   return next;
 }
 export function guardOrigin(request: Request) {
@@ -207,6 +245,75 @@ export async function claimAiBudget(request: Request, reportId: string) {
     .bind(...entries.map((entry) => entry.key))
     .all<{ key: string; count: number }>();
   return exhaustedAiBudget(entries, counts.results);
+}
+
+export interface NonAiBudgetReservation {
+  entries: NonAiBudgetEntry[];
+}
+
+export async function reserveNonAiBudget(
+  circuit: NonAiBudgetCircuit,
+  amount = 1,
+  now = Date.now(),
+): Promise<NonAiBudgetReservation | null> {
+  const entries = nonAiBudgetEntries(circuit, amount, now);
+  const acquired = await db()
+    .prepare(nonAiBudgetSql.acquire)
+    .bind(...nonAiBudgetAcquireBindings(entries))
+    .all<{ key: string; count: number }>();
+  if (acquired.results.length === entries.length) return { entries };
+  if (acquired.results.length)
+    throw new Error("GLOBAL_BUDGET_PARTIAL_RESERVATION");
+
+  const counts = await db()
+    .prepare(nonAiBudgetSql.counts)
+    .bind(...entries.map((entry) => entry.key))
+    .all<{ key: string; count: number }>();
+  const scope = exhaustedNonAiBudget(entries, counts.results);
+  const observation = nonAiExhaustionObservation(circuit, scope, now);
+  const observed = await db()
+    .prepare(nonAiBudgetSql.observeExhaustion)
+    .bind(
+      observation.key,
+      observation.expiresAt,
+      ABUSE_EXHAUSTION_OBSERVATION_LIMIT,
+    )
+    .first<{ count: number }>()
+    .catch(() => null);
+  if (observed && shouldEmitAbuseObservation(observed.count))
+    emitAbuseBudgetObservation(circuit, scope, observed.count);
+  return null;
+}
+
+export async function releaseNonAiBudget(
+  reservation: NonAiBudgetReservation,
+) {
+  await db().batch(
+    reservation.entries.map((entry) =>
+      db()
+        .prepare(nonAiBudgetSql.release)
+        .bind(entry.amount, entry.key, entry.expiresAt),
+    ),
+  );
+}
+
+export function globalBudgetExhaustedError() {
+  return new AppError(
+    "The service is temporarily busy. Please wait and try again.",
+    429,
+  );
+}
+
+export async function requireNonAiBudget(
+  circuit: Exclude<NonAiBudgetCircuit, "report_growth">,
+) {
+  const reservation = await reserveNonAiBudget(circuit);
+  if (!reservation) throw globalBudgetExhaustedError();
+  return reservation;
+}
+
+export function reserveReportGrowth(amount: number) {
+  return reserveNonAiBudget("report_growth", amount);
 }
 export function json(data: unknown, status = 200) {
   return Response.json(data, {

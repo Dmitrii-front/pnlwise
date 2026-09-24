@@ -7,6 +7,7 @@ import {
   sha256,
   track,
   AppError,
+  reserveNonAiBudget,
 } from "@/lib/server";
 const names = [
   "landing_view",
@@ -25,6 +26,13 @@ export const POST = (req: Request) =>
       200,
       60,
     );
+    let admitted = false;
+    try {
+      admitted = !!(await reserveNonAiBudget("public_events"));
+    } catch {
+      return json({ ok: true });
+    }
+    if (!admitted) return json({ ok: true });
     await track(data.name, data.metadata || {});
     return json({ ok: true });
   });

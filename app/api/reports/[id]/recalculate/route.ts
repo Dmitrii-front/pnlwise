@@ -7,6 +7,7 @@ import {
   saveReport,
   AppError,
   track,
+  sessionRate,
 } from "@/lib/server";
 import { needsReview, calculatePnl, validDate } from "@/lib/domain";
 export const POST = (
@@ -15,6 +16,7 @@ export const POST = (
 ) =>
   api(async () => {
     guardOrigin(req);
+    await sessionRate(req, "edit", 500);
     const { id } = await params;
     let report = await getReport(id);
     const input = await body(req);
