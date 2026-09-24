@@ -75,6 +75,9 @@ export async function sendSentryDiagnostic(
         platform: "javascript",
         environment: safeEnvironment(options.environment),
         message: `${diagnostic.code} at ${diagnostic.stage}`,
+        fingerprint: diagnostic.fingerprint
+          ? [diagnostic.fingerprint]
+          : undefined,
         tags,
         extra: diagnostic.provider_request_id
           ? { provider_request_id: diagnostic.provider_request_id }
