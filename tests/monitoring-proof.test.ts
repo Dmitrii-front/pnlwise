@@ -22,17 +22,20 @@ const accepted = {
 function request(input: {
   authorization?: string;
   intent?: string;
-  body?: string;
+  body?: BodyInit | null;
+  headers?: HeadersInit;
 }) {
-  const headers = new Headers();
+  const headers = new Headers(input.headers);
   if (input.authorization) headers.set("authorization", input.authorization);
   if (input.intent)
     headers.set("x-pnlwise-monitoring-proof", input.intent);
-  return new Request("https://pnlwise.test/api/monitoring/proof", {
+  const init = {
     method: "POST",
     headers,
     body: input.body,
-  });
+    ...(input.body instanceof ReadableStream ? { duplex: "half" } : {}),
+  } as RequestInit;
+  return new Request("https://pnlwise.test/api/monitoring/proof", init);
 }
 
 test("existing staging proof behavior remains unchanged", async () => {
@@ -105,6 +108,49 @@ test("authorized bodyless production proof reports exactly once without an Error
   });
 });
 
+test("production proof accepts null and zero-byte streamed bodies", async () => {
+  for (const candidate of [
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: null,
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      headers: { "Content-Length": "0" },
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    }),
+  ]) {
+    let reports = 0;
+    const outcome = await executeMonitoringProof({
+      request: candidate,
+      environment: "production",
+      maintenanceSecret: secret,
+      report: async () => {
+        reports++;
+        return accepted;
+      },
+    });
+
+    assert.equal(outcome.status, 200);
+    assert.equal(reports, 1);
+  }
+});
+
 test("wrong environment, authentication, or intent never reports", async () => {
   let reports = 0;
   const report = async () => {
@@ -166,14 +212,73 @@ test("wrong environment, authentication, or intent never reports", async () => {
   assert.equal(reports, 0);
 });
 
-test("production request body is rejected without parsing, logging, or reporting it", async () => {
-  let reports = 0;
+test("production request bodies fail closed without reporting or exposing content", async () => {
   const privateMarker = "PRIVATE_REPORT_BODY_AND_SECRET";
+  for (const candidate of [
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: privateMarker,
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: new Uint8Array([1]),
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: new Uint8Array(128 * 1024),
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      headers: { "Content-Length": "0" },
+      body: new Uint8Array([1]),
+    }),
+  ]) {
+    let reports = 0;
+    const outcome = await executeMonitoringProof({
+      request: candidate,
+      environment: "production",
+      maintenanceSecret: secret,
+      report: async () => {
+        reports++;
+        return accepted;
+      },
+    });
+
+    assert.deepEqual(outcome, {
+      status: 400,
+      error: "Request body is not allowed.",
+    });
+    assert.equal(reports, 0);
+    assert.doesNotMatch(JSON.stringify(outcome), new RegExp(privateMarker));
+    assert.doesNotMatch(JSON.stringify(outcome), new RegExp(secret));
+  }
+});
+
+test("production body guard rejects early and cancels unread content", async () => {
+  let pulled = 0;
+  let canceled = false;
+  const streamedBody = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel() {
+        canceled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  let reports = 0;
   const outcome = await executeMonitoringProof({
     request: request({
       authorization: `Bearer ${secret}`,
       intent: PRODUCTION_PROOF_HEADER,
-      body: privateMarker,
+      body: streamedBody,
     }),
     environment: "production",
     maintenanceSecret: secret,
@@ -183,13 +288,59 @@ test("production request body is rejected without parsing, logging, or reporting
     },
   });
 
-  assert.deepEqual(outcome, {
-    status: 400,
-    error: "Request body is not allowed.",
-  });
+  assert.equal(outcome.status, 400);
+  assert.equal(pulled, 1);
+  assert.equal(canceled, true);
   assert.equal(reports, 0);
-  assert.doesNotMatch(JSON.stringify(outcome), new RegExp(privateMarker));
-  assert.doesNotMatch(JSON.stringify(outcome), new RegExp(secret));
+});
+
+test("positive Content-Length and failed streams reject without reporting", async () => {
+  let positiveLengthPulled = false;
+  const cases = [
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      headers: { "Content-Length": "1" },
+      body: new ReadableStream(
+        {
+          pull(controller) {
+            positiveLengthPulled = true;
+            controller.enqueue(new Uint8Array([1]));
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    }),
+    request({
+      authorization: `Bearer ${secret}`,
+      intent: PRODUCTION_PROOF_HEADER,
+      body: new ReadableStream({
+        pull(controller) {
+          controller.error(new Error("PRIVATE_STREAM_FAILURE"));
+        },
+      }),
+    }),
+  ];
+
+  for (const candidate of cases) {
+    let reports = 0;
+    const outcome = await executeMonitoringProof({
+      request: candidate,
+      environment: "production",
+      maintenanceSecret: secret,
+      report: async () => {
+        reports++;
+        return accepted;
+      },
+    });
+    assert.deepEqual(outcome, {
+      status: 400,
+      error: "Request body is not allowed.",
+    });
+    assert.equal(reports, 0);
+    assert.doesNotMatch(JSON.stringify(outcome), /PRIVATE_STREAM_FAILURE/);
+  }
+  assert.equal(positiveLengthPulled, false);
 });
 
 test("production proof fingerprint reaches a privacy-safe Sentry envelope", async () => {

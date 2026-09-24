@@ -1,5 +1,6 @@
 import type { MonitoringResult } from "./monitoring-core";
 import type { OperationalDiagnostic } from "./operational-diagnostics";
+import { readBoundedRequestBody } from "./abuse-protection";
 import { maintenanceAuthorized } from "./retention";
 
 export const PRODUCTION_PROOF_HEADER = "production-proof-v1";
@@ -63,8 +64,11 @@ export async function executeMonitoringProof(input: {
       PRODUCTION_PROOF_HEADER
     )
       return { status: 404, error: "Not found." };
-    if (input.request.body !== null)
+    try {
+      await readBoundedRequestBody(input.request, 0);
+    } catch {
       return { status: 400, error: "Request body is not allowed." };
+    }
     result = await input.report(productionDiagnostic);
   } else {
     result = await input.report(

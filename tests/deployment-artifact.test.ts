@@ -21,6 +21,7 @@ const stagingDatabase = {
   database_name: "pnlwise-staging",
   database_id: "4c9d7b91-f65a-417f-b3d6-8a5e93a737c1",
 };
+const monitoringProofSecret = "local-miniflare-monitoring-proof-secret";
 
 interface GeneratedWranglerConfig {
   main: string;
@@ -160,12 +161,34 @@ test(
           modulesRoot: serverRoot,
           compatibilityDate: "2026-05-15",
           compatibilityFlags: ["nodejs_compat"],
+          bindings: {
+            SENTRY_ENVIRONMENT: "production",
+            MAINTENANCE_SECRET: monitoringProofSecret,
+          },
           d1Databases: { DB: "retention-integration" },
         });
 
         try {
           const database = await miniflare.getD1Database("DB");
           await applyMigrations(database);
+
+          const proofResponse = await fetch(
+            new URL("/api/monitoring/proof", await miniflare.ready),
+            {
+              method: "POST",
+              redirect: "manual",
+              headers: {
+                Authorization: `Bearer ${monitoringProofSecret}`,
+                "X-Pnlwise-Monitoring-Proof": "production-proof-v1",
+              },
+            },
+          );
+          assert.equal(proofResponse.status, 502);
+          assert.equal(
+            ((await proofResponse.json()) as { error?: unknown }).error,
+            "Monitoring did not accept the proof event.",
+          );
+
           const now = Date.now();
           await insertReport(database, "expired", now - 1);
           await insertReport(database, "unexpired", now + 86_400_000);
