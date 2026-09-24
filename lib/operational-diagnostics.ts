@@ -5,7 +5,6 @@ export interface OperationalDiagnostic {
   route?: string;
   provider?: string;
   providerRequestId?: string | null;
-  fingerprint?: string;
   httpStatus?: number;
   retryable?: boolean;
   alertable?: boolean;
@@ -19,7 +18,6 @@ export interface SafeOperationalDiagnostic {
   route?: string;
   provider?: string;
   provider_request_id?: string;
-  fingerprint?: string;
   http_status?: number;
   retryable?: boolean;
   alertable: boolean;
@@ -28,7 +26,6 @@ export interface SafeOperationalDiagnostic {
 const safeCode = /^[A-Z][A-Z0-9_]{2,63}$/;
 const safeStage = /^[a-z][a-z0-9_.-]{2,79}$/;
 const safeRequestId = /^[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$/;
-const safeFingerprint = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const safeTag = /^[a-z][a-z0-9_.-]{1,63}$/;
 
 function diagnosticDefaults(stage: string) {
@@ -110,11 +107,6 @@ export function safeOperationalDiagnostic(
     safeRequestId.test(diagnostic.providerRequestId)
   )
     value.provider_request_id = diagnostic.providerRequestId;
-  if (
-    diagnostic.fingerprint &&
-    safeFingerprint.test(diagnostic.fingerprint)
-  )
-    value.fingerprint = diagnostic.fingerprint;
   if (
     Number.isInteger(diagnostic.httpStatus) &&
     diagnostic.httpStatus! >= 400 &&

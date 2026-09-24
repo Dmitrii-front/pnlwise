@@ -21,7 +21,6 @@ const stagingDatabase = {
   database_name: "pnlwise-staging",
   database_id: "4c9d7b91-f65a-417f-b3d6-8a5e93a737c1",
 };
-const monitoringProofSecret = "local-miniflare-monitoring-proof-secret";
 
 interface GeneratedWranglerConfig {
   main: string;
@@ -125,6 +124,45 @@ test(
       assert.deepEqual(config.vars, {});
       assert.equal(config.workers_dev, undefined);
       assert.equal(config.preview_urls, undefined);
+
+      const entryPath = join(serverRoot, config.main);
+      const moduleFiles = await javascriptModules(serverRoot);
+      const modules: ModuleDefinition[] = [
+        entryPath,
+        ...moduleFiles.filter((path) => path !== entryPath),
+      ].map((path) => ({ type: "ESModule", path }));
+      const stagingProofSecret = "local-staging-monitoring-proof-secret";
+      const miniflare = new Miniflare({
+        modules,
+        modulesRoot: serverRoot,
+        compatibilityDate: "2026-05-15",
+        compatibilityFlags: ["nodejs_compat"],
+        bindings: {
+          SENTRY_ENVIRONMENT: "staging",
+          MAINTENANCE_SECRET: stagingProofSecret,
+        },
+        d1Databases: { DB: "staging-proof-integration" },
+      });
+
+      try {
+        const response = await fetch(
+          new URL("/api/monitoring/proof", await miniflare.ready),
+          {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+              Authorization: `Bearer ${stagingProofSecret}`,
+            },
+          },
+        );
+        assert.equal(response.status, 502);
+        assert.equal(
+          ((await response.json()) as { error?: unknown }).error,
+          "Monitoring did not accept the proof event.",
+        );
+      } finally {
+        await miniflare.dispose();
+      }
     });
 
     build();
@@ -163,7 +201,6 @@ test(
           compatibilityFlags: ["nodejs_compat"],
           bindings: {
             SENTRY_ENVIRONMENT: "production",
-            MAINTENANCE_SECRET: monitoringProofSecret,
           },
           d1Databases: { DB: "retention-integration" },
         });
@@ -178,15 +215,15 @@ test(
               method: "POST",
               redirect: "manual",
               headers: {
-                Authorization: `Bearer ${monitoringProofSecret}`,
                 "X-Pnlwise-Monitoring-Proof": "production-proof-v1",
               },
+              body: "production requests must return before body handling",
             },
           );
-          assert.equal(proofResponse.status, 502);
+          assert.equal(proofResponse.status, 404);
           assert.equal(
             ((await proofResponse.json()) as { error?: unknown }).error,
-            "Monitoring did not accept the proof event.",
+            "Not found.",
           );
 
           const now = Date.now();
