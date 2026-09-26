@@ -572,13 +572,35 @@ export default function ReportView({
             <DialogDescription>
               One payment of {money(price)} plus applicable tax unlocks your PDF
               statement, Excel workbook, and transaction report. Paddle Sandbox
-              will handle the secure checkout.
+              will handle the secure test checkout. For transactions processed
+              through Paddle, Paddle acts as the authorized reseller and
+              Merchant of Record and handles payment processing and applicable
+              transaction taxes under its{" "}
+              <a href="https://www.paddle.com/legal/buyer-terms">
+                Buyer Terms
+              </a>
+              .
             </DialogDescription>
           </DialogHeader>
           <div className="checkout-summary">
             <span>Complete Profit & Loss report</span>
             <strong>{money(price)} + applicable tax</strong>
           </div>
+          <p className="checkout-legal">
+            By continuing to payment, you agree to the{" "}
+            <a href="/terms" target="_blank" rel="noreferrer">
+              Pnlwise Terms
+            </a>{" "}
+            and acknowledge the{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer">
+              Privacy Policy
+            </a>{" "}
+            and{" "}
+            <a href="/refund-policy" target="_blank" rel="noreferrer">
+              Refund Policy
+            </a>
+            .
+          </p>
           {error && (
             <p className="error-box" role="alert">
               {error}

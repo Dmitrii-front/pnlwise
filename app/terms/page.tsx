@@ -14,7 +14,7 @@ export default function Page() {
       <main id="main" className="wrap legal-page">
         <span className="eyebrow">TERMS</span>
         <h1>Terms of Service</h1>
-        <p className="legal-date">Last updated September 16, 2026</p>
+        <p className="legal-date">Last updated September 26, 2026</p>
         {!identity.configured && (
           <p className="info-box">
             These terms describe the preview service. Operator, support, and
@@ -54,11 +54,17 @@ export default function Page() {
           <h2>Preview, purchase, and access</h2>
           <p>
             Report previews are free. The base price shown is a one-time payment
-            for the downloadable versions of that report. Paddle may add
-            applicable tax at checkout. There is no recurring subscription.
-            Downloads unlock after payment verification. Keep your downloaded
-            files; clearing your session cookie or deleting report data may
-            remove your access.
+            for the downloadable versions of that report. Pnlwise supplies and
+            operates the product service. For transactions processed through
+            Paddle, Paddle acts as the authorized reseller and Merchant of
+            Record and handles checkout, payment processing, and applicable
+            transaction taxes under the official{" "}
+            <a href="https://www.paddle.com/legal/buyer-terms">
+              Paddle Buyer Terms
+            </a>
+            . There is no recurring subscription. Downloads unlock after
+            payment verification. Keep your downloaded files; clearing your
+            session cookie or deleting report data may remove your access.
           </p>
         </section>
         <section>
@@ -67,8 +73,13 @@ export default function Page() {
             You can edit categories and regenerate the same report while it
             remains available. Refund eligibility, payment errors, duplicate
             charges, and delivery problems are covered by our{" "}
-            <a href="/refund-policy">Refund Policy</a>. Rights that apply under
-            law are not waived by these terms.
+            <a href="/refund-policy">Refund Policy</a>. Paddle also publishes a{" "}
+            <a href="https://www.paddle.com/legal/refund-policy">
+              transaction Refund Policy
+            </a>{" "}
+            and{" "}
+            <a href="https://paddle.net/">Buyer Support</a>. Rights that apply
+            under mandatory law are not waived by these terms.
           </p>
         </section>
         <section>

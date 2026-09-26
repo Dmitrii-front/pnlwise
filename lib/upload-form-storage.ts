@@ -20,10 +20,13 @@ interface StoredUploadFormState extends UploadFormState {
   version: 1;
 }
 
-interface StorageLike {
+export interface StorageRemover {
+  removeItem(key: string): void;
+}
+
+interface StorageLike extends StorageRemover {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
-  removeItem(key: string): void;
 }
 
 export const emptyUploadFormState: UploadFormState = {
@@ -96,6 +99,16 @@ export function clearUploadFormState(storage: StorageLike) {
     storage.removeItem(uploadFormStorageKey);
   } catch {
     // Storage failures must not block navigation after a successful upload.
+  }
+}
+
+export function clearPnlwiseBrowserStorage(storage: StorageRemover) {
+  for (const key of [uploadFormStorageKey, businessNameHistoryStorageKey]) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Local storage failures must not invalidate successful server deletion.
+    }
   }
 }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   businessNameHistoryLimit,
   businessNameHistoryStorageKey,
+  clearPnlwiseBrowserStorage,
   clearUploadFormState,
   emptyUploadFormState,
   readBusinessNameHistory,
@@ -122,4 +123,17 @@ test("invalid business-name history is ignored", () => {
   const storage = new MemoryStorage();
   storage.setItem(businessNameHistoryStorageKey, "not-json");
   assert.deepEqual(readBusinessNameHistory(storage), []);
+});
+
+test("successful data deletion can clear all Pnlwise form storage", () => {
+  const storage = new MemoryStorage();
+  storage.setItem(uploadFormStorageKey, "saved-form");
+  storage.setItem(businessNameHistoryStorageKey, "saved-names");
+  storage.setItem("unrelated", "preserved");
+
+  clearPnlwiseBrowserStorage(storage);
+
+  assert.equal(storage.getItem(uploadFormStorageKey), null);
+  assert.equal(storage.getItem(businessNameHistoryStorageKey), null);
+  assert.equal(storage.getItem("unrelated"), "preserved");
 });

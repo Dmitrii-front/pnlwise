@@ -15,7 +15,7 @@ export default function Page() {
       <main id="main" className="wrap legal-page">
         <span className="eyebrow">PRIVACY</span>
         <h1>Privacy Policy</h1>
-        <p className="legal-date">Last updated September 13, 2026</p>
+        <p className="legal-date">Last updated September 26, 2026</p>
         {!identity.configured && (
           <p className="info-box">
             Preview service: commercial operator and support details are still
@@ -32,6 +32,13 @@ export default function Page() {
             session cookie identifies your browser. We do not request your bank
             password or login credentials.
           </p>
+          <p>
+            Browser local storage may retain upload-form details such as your
+            business type and name, reporting dates, account choice or label,
+            and amount convention. It may also retain a short history of
+            business-name values for form convenience. This browser storage is
+            separate from cookies.
+          </p>
         </section>
         <section>
           <h2>How we use the information</h2>
@@ -39,24 +46,37 @@ export default function Page() {
             We use it to parse statements, organize transactions, calculate and
             display reports, verify purchases, and provide downloads. Where AI
             categorization is enabled, OpenAI receives selected transaction
-            context to suggest categories. If you opt into account creation,
+            context to suggest categories. Raw source documents are not sent to
+            OpenAI. Requests use <code>store: false</code>, which avoids storing
+            response application state but does not by itself enable Zero Data
+            Retention. OpenAI may process submitted context and related metadata
+            under its current{" "}
+            <a href="https://developers.openai.com/api/docs/guides/your-data">
+              API data controls
+            </a>
+            , including abuse monitoring. If you opt into account creation,
             Supabase Auth handles email magic links or Google sign-in. The
             verified account ID links your reports across browser sessions.
-            Source documents are not sent to the categorization service. Paddle
-            processes checkout and card details.
+            Paddle handles checkout and card details for Paddle transactions.
           </p>
         </section>
         <section>
           <h2>Storage and retention</h2>
           <p>
-            Source files are handled in server memory and discarded at the end
-            of the upload request. Successfully parsed transactions and reports
-            are stored in a private database. Anonymous report access expires
-            after {config.retentionDays} days by default. Expired records are
-            removed in bounded batches when a new report is started or when the
+            Raw uploaded source-file contents are handled in server memory and
+            are not retained after parsing. Extracted transactions and report
+            data are stored in a private database for the report lifetime.
+            Limited file-derived metadata may remain with the report, including
+            a sanitized filename, file format, file hash, account metadata, and
+            row count where available. Anonymous report access expires after{" "}
+            {config.retentionDays} days by default. Expired records are removed
+            in bounded batches when a new report is started or when the daily
             maintenance cleanup runs; access expiry and physical deletion are
-            separate events. Payment records may be retained for accounting,
-            disputes, and applicable legal obligations.
+            separate events. Active or incomplete payment processing can
+            temporarily prevent deletion or cleanup where needed to preserve
+            transaction integrity. Ordinary analytics are retained for 90 days.
+            Payment and accounting records may be retained separately for
+            accounting, disputes, and applicable obligations.
           </p>
         </section>
         <section>
@@ -66,9 +86,13 @@ export default function Page() {
             generation, and downloads. Metadata may include file format,
             transaction count, business type, and the page used to start. We do
             not send transaction descriptions, bank statement contents, business
-            names, or card details to analytics. Error diagnostics use error
-            types rather than raw uploaded data. Request addresses are hashed
-            for short-term rate limits.
+            names, or card details to analytics. Operational and server errors
+            may be sent to Sentry as intentionally restricted, sanitized
+            application diagnostics. Pnlwise does not enable Sentry Session
+            Replay. Sentry and the network path may still process ordinary
+            network metadata; diagnostics do not promise the absence of such
+            metadata. Within the application, request addresses are converted
+            into short-lived hashed identifiers for rate limits.
           </p>
         </section>
         <section>
@@ -77,20 +101,33 @@ export default function Page() {
             You can stop before payment, change categories, and delete your
             session’s report data. Deletion removes statements, transactions,
             and reports associated with the session, including paid reports. It
-            does not erase the separate payment provider record. Download any
-            files you want to retain before deleting.
+            does not erase the separate payment provider record. An active or
+            incomplete Paddle payment may need to be resolved before server
+            deletion can finish. After successful server deletion, Pnlwise also
+            clears its saved upload-form details and business-name history from
+            this browser. Download any files you want to retain before deleting.
           </p>
           <DeleteData />
         </section>
         <section>
           <h2>Service providers</h2>
           <p>
-            The hosted application and database run on Cloudflare infrastructure
-            through Sites. Paddle handles payments. OpenAI is used only when AI
-            categorization is configured. Providers process information under
-            their own terms and applicable data-processing arrangements. This
-            service does not sell uploaded statements or use them for
-            advertising.
+            Cloudflare Workers runs the application and Cloudflare D1 stores
+            application data. Cloudflare processes infrastructure and network
+            request metadata needed to provide those services; Pnlwise&apos;s own
+            rate-limit records use the short-lived hashed identifiers described
+            above. For transactions processed through Paddle, Pnlwise supplies
+            the product service and Paddle acts as the authorized reseller and
+            Merchant of Record, handling payment processing and applicable
+            transaction taxes under its{" "}
+            <a href="https://www.paddle.com/legal/buyer-terms">Buyer Terms</a>{" "}
+            and{" "}
+            <a href="https://www.paddle.com/legal/privacy">Privacy Notice</a>.
+            OpenAI is used only when AI categorization is configured. Sentry is
+            used for restricted operational error monitoring. Providers process
+            information under their own terms and applicable data-processing
+            arrangements. This service does not sell uploaded statements or use
+            them for advertising.
           </p>
         </section>
         <section>

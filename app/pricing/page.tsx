@@ -47,6 +47,15 @@ export default function Page() {
             </ul>
             <UploadLink label="Create my P&L" />
             <small>No account or credit card required to start</small>
+            <small>
+              For transactions processed through Paddle, Paddle acts as the
+              authorized reseller and Merchant of Record and handles payment
+              processing and applicable transaction taxes under its{" "}
+              <a href="https://www.paddle.com/legal/buyer-terms">
+                Buyer Terms
+              </a>
+              .
+            </small>
           </article>
           <div className="pricing-explainer">
             <h2>What counts as one report?</h2>

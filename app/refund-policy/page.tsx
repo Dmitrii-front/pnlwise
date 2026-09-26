@@ -21,7 +21,7 @@ export default function Page() {
       <main id="main" className="wrap legal-page">
         <span className="eyebrow">REFUNDS</span>
         <h1>Refund Policy</h1>
-        <p className="legal-date">Last updated September 16, 2026</p>
+        <p className="legal-date">Last updated September 26, 2026</p>
         {!identity.configured && (
           <p className="info-box">
             Payment and public support are unavailable until the service
@@ -31,11 +31,13 @@ export default function Page() {
         <section>
           <h2>One-time digital purchase</h2>
           <p>
-            {config.name} sells a one-time digital Profit &amp; Loss report for{" "}
-            a base price of {price}, plus applicable tax. There is no
-            subscription or recurring billing. The report is generated from the
-            bank statements you upload, and the purchase unlocks its PDF, Excel,
-            and CSV exports.
+            {config.name} supplies and operates a digital Profit &amp; Loss report
+            service. For transactions processed through Paddle, Paddle acts as
+            the authorized reseller and Merchant of Record. The base price is{" "}
+            {price}, plus applicable transaction taxes handled by Paddle under
+            its terms. There is no subscription or recurring billing. The
+            report is generated from the bank statements you upload, and the
+            purchase unlocks its PDF, Excel, and CSV exports.
           </p>
         </section>
         <section>
@@ -46,11 +48,12 @@ export default function Page() {
               <a href={`mailto:${identity.supportEmail}`}>
                 {identity.supportEmail}
               </a>{" "}
-              if you were charged more than once, experienced a payment error,
-              cannot access your purchased exports, or a material technical
-              failure prevented us from delivering the purchased report. Include
-              your payment reference and a brief description of the issue. Do
-              not email bank statements or card details.
+              if you cannot access purchased exports or a product or delivery
+              issue needs investigation. For payment, duplicate-charge, and
+              refund help, you may also use Paddle&apos;s{" "}
+              <a href="https://paddle.net/">Buyer Support</a>. Include your
+              payment reference and a brief description of the issue. Do not
+              email bank statements or card details.
             </p>
           ) : (
             <p>
@@ -62,13 +65,18 @@ export default function Page() {
         <section>
           <h2>How refund requests are handled</h2>
           <p>
-            Paddle is our Merchant of Record and payment provider.{" "}
-            {identity.configured
-              ? `${identity.operator} and Paddle review eligible requests`
-              : "The configured service operator and Paddle review eligible requests"}{" "}
-            under this policy, Paddle&apos;s obligations, and applicable law.
-            Approved refunds are returned through the original payment method
-            where possible.
+            Pnlwise support may investigate report generation, access, and
+            delivery issues. Paddle, as the authorized reseller and Merchant of
+            Record, processes refunds for Paddle transactions under the{" "}
+            <a href="https://www.paddle.com/legal/buyer-terms">Buyer Terms</a>{" "}
+            and{" "}
+            <a href="https://www.paddle.com/legal/refund-policy">
+              Paddle Refund Policy
+            </a>
+            . Buyers may submit a request through{" "}
+            <a href="https://paddle.net/">Paddle Buyer Support</a>. Paddle
+            explains its handling of personal information in its{" "}
+            <a href="https://www.paddle.com/legal/privacy">Privacy Notice</a>.
           </p>
           <p>
             Because each report is a digital product generated from your
@@ -76,8 +84,8 @@ export default function Page() {
             exports normally complete delivery. Disagreement with a transaction
             category or accounting interpretation after delivery does not, by
             itself, guarantee a refund. You can review and edit categories
-            before generating the report. This policy does not limit any rights
-            you have under applicable law.
+            before generating the report. Neither this policy nor the use of a
+            digital product waives mandatory consumer rights.
           </p>
         </section>
         <section>

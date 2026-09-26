@@ -2316,6 +2316,17 @@ summary:focus-visible {
   font-size: 14px;
   margin: 10px 0;
 }
+.checkout-legal {
+  margin: 0;
+  color: #66705f;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.checkout-legal a {
+  color: #345c2f;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 @media (max-width: 1000px) {
   .report-layout {
     gap: 20px;
