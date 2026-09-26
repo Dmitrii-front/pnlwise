@@ -35,7 +35,9 @@ test("legal pages use current Paddle MoR terminology and official links", () => 
 
   for (const text of [terms, refund, pricing]) {
     assert.ok(
-      text.replace(/\s+/g, " ").includes("authorized reseller and Merchant of Record"),
+      text
+        .replace(/\s+/g, " ")
+        .includes("authorized reseller and Merchant of Record"),
     );
   }
   for (const url of [
@@ -75,7 +77,7 @@ test("privacy disclosures match storage, provider, and retention behavior", () =
   assert.match(privacy, /does not by itself enable Zero Data/);
 });
 
-test("checkout presents linked acknowledgement and remains Sandbox-only", () => {
+test("checkout presents linked acknowledgement and has an explicit Paddle environment split", () => {
   const report = source("components/product/report.tsx");
   const paddle = source("lib/paddle.ts");
   const paymentCore = source("lib/paddle-payment-core.ts");
@@ -84,11 +86,14 @@ test("checkout presents linked acknowledgement and remains Sandbox-only", () => 
   assert.match(report, /href="\/terms"/);
   assert.match(report, /href="\/privacy"/);
   assert.match(report, /href="\/refund-policy"/);
-  assert.match(report, /Paddle Sandbox/);
-  assert.match(report, /environment: "sandbox"/);
+  assert.match(report, /Paddle will/);
   assert.match(paddle, /Environment\.sandbox/);
+  assert.match(paddle, /Environment\.production/);
   assert.ok(paymentCore.includes("pdl_sdbx_apikey_"));
+  assert.ok(paymentCore.includes("pdl_live_apikey_"));
   assert.ok(paymentCore.includes("^test_"));
+  assert.ok(paymentCore.includes("^live_"));
+  assert.ok(paymentCore.includes("pri_01m3ems5yqsxjerf0k2rdpnxwg"));
 });
 
 test("successful server deletion clears local Pnlwise state", async () => {
@@ -117,7 +122,10 @@ test("failed server deletion preserves local Pnlwise state", async () => {
   await assert.rejects(
     deleteSessionData(
       async () =>
-        Response.json({ error: "Deletion is temporarily unavailable." }, { status: 409 }),
+        Response.json(
+          { error: "Deletion is temporarily unavailable." },
+          { status: 409 },
+        ),
       storage,
     ),
     /Deletion is temporarily unavailable/,

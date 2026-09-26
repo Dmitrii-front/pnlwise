@@ -2,6 +2,7 @@
 
 import { initializePaddle } from "@paddle/paddle-js";
 import { useEffect, useState } from "react";
+import { paddleClientConfiguration } from "@/lib/paddle-client";
 
 export function PaddleCheckout({
   transactionId,
@@ -10,19 +11,18 @@ export function PaddleCheckout({
   transactionId: string;
   reportId?: string;
 }) {
-  const token = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN;
-  const environment = process.env.NEXT_PUBLIC_PADDLE_ENV;
-  const configured =
-    !!token?.startsWith("test_") &&
-    (environment === undefined || environment === "sandbox");
+  const configuration = paddleClientConfiguration();
+  const configured = !!configuration;
+  const token = configuration?.token;
+  const environment = configuration?.environment;
   const [error, setError] = useState(
-    configured ? "" : "Paddle Sandbox checkout is not configured.",
+    configured ? "" : "Paddle checkout is not configured.",
   );
 
   useEffect(() => {
     let active = true;
     if (!configured) return;
-    void initializePaddle({ token: token!, environment: "sandbox" })
+    void initializePaddle({ token: token!, environment: environment! })
       .then((paddle) => {
         if (!active || !paddle) return;
         paddle.Checkout.open({
@@ -38,16 +38,16 @@ export function PaddleCheckout({
         });
       })
       .catch(() => {
-        if (active) setError("Paddle Sandbox checkout could not be opened.");
+        if (active) setError("Paddle checkout could not be opened.");
       });
     return () => {
       active = false;
     };
-  }, [configured, reportId, token, transactionId]);
+  }, [configured, environment, reportId, token, transactionId]);
 
   return (
     <div className="empty-state">
-      <h1>Secure Sandbox checkout</h1>
+      <h1>Secure checkout</h1>
       <p>
         {error ||
           "Paddle Checkout is opening. Your downloads unlock only after verified payment confirmation."}

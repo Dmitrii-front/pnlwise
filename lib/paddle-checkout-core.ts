@@ -1,4 +1,4 @@
-import { paddlePurchaseKey } from "./paddle-payment-core";
+import { PADDLE_CATALOG, paddlePurchaseKey } from "./paddle-payment-core";
 
 export interface PaddleCheckoutRecord {
   id: string;
@@ -33,6 +33,7 @@ export type PaddleCheckoutResult =
 
 export async function ensurePaddleCheckout(input: {
   reportId: string;
+  purchaseKey?: string;
   amount: number;
   store: PaddleCheckoutStore;
   createTransaction: (
@@ -45,7 +46,9 @@ export async function ensurePaddleCheckout(input: {
   attempts?: number;
 }): Promise<PaddleCheckoutResult> {
   const now = input.now ?? Date.now;
-  const purchaseKey = paddlePurchaseKey(input.reportId);
+  const purchaseKey =
+    input.purchaseKey ??
+    paddlePurchaseKey(input.reportId, PADDLE_CATALOG.sandbox);
   const claimed = await input.store.claim({
     id: purchaseKey,
     purchaseKey,

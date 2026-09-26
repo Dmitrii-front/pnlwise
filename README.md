@@ -1,6 +1,6 @@
 # Pnlwise
 
-Bank statements → review → deterministic P&L preview → one-time Paddle Sandbox payment → PDF, XLSX, and CSV.
+Bank statements → review → deterministic P&L preview → one-time Paddle payment → PDF, XLSX, and CSV.
 
 ## Run locally
 
@@ -71,13 +71,19 @@ checkout and external callbacks.
 
 ## Integrations (off until configured)
 
-### Paddle Sandbox
+### Paddle environments
 
-Set `PADDLE_API_KEY`, `PADDLE_NOTIFICATION_WEBHOOK_SECRET`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, and `APP_ORIGIN`. The API key must start with `pdl_sdbx_apikey_`, the client token with `test_`, and the Paddle SDK is hard-coded to Sandbox. Optional `PADDLE_ENVIRONMENT` and `NEXT_PUBLIC_PADDLE_ENV` values may only be `sandbox`. Live credentials and environment values fail closed. Configure a Sandbox notification destination for `${APP_ORIGIN}/api/paddle/webhook` subscribed to `transaction.completed`. The public origin must permit external webhook delivery; owner-private preview access is not a public webhook endpoint.
+Set `PADDLE_API_KEY`, `PADDLE_NOTIFICATION_WEBHOOK_SECRET`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `PADDLE_ENVIRONMENT`, `NEXT_PUBLIC_PADDLE_ENV`, and `APP_ORIGIN`. `PADDLE_ENVIRONMENT` and `NEXT_PUBLIC_PADDLE_ENV` must both be `sandbox` or both be `production`; omitted values default to `sandbox` to preserve the current deployment. Any invalid selector, mismatch, missing value, Sandbox/Live credential mix, missing operational identity, wrong public price, or missing origin disables Paddle fail-closed.
 
-Checkout creates a server-side transaction for the fixed Sandbox price and passes only its transaction ID to Paddle.js. The catalog price restricts quantity to exactly one. Webhooks use the official Paddle SDK against the raw request body, then validate `transaction.completed`, a captured payment attempt, stored transaction ID, report ID, payment ID, product, price, one-time billing shape, quantity, amount, currency, and zero discount. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL or client event is never accepted as proof of payment.
+Sandbox requires an API key beginning `pdl_sdbx_apikey_` and client token beginning `test_`. Production requires an API key beginning `pdl_live_apikey_` and client token beginning `live_`. Keep each environment's API key, client token, and webhook signing secret separate. Never copy Live credentials into Sandbox configuration or expose server secrets through `NEXT_PUBLIC_*` variables.
 
-Set the Sandbox default payment link to `${APP_ORIGIN}/checkout`, then validate checkout and webhook delivery using Paddle Sandbox test cards and the Sandbox notification destination. No live credentials or charges are used.
+`NEXT_PUBLIC_PADDLE_CLIENT_TOKEN` and `NEXT_PUBLIC_PADDLE_ENV` are embedded in the browser bundle at build time. Set them before building; changing only Cloudflare runtime variables does not change an existing client bundle. The server and browser selectors are still compared server-side before checkout is enabled.
+
+The selected environment chooses the Paddle Node SDK and Paddle.js environment plus its fixed catalog mapping. Sandbox uses product `pro_01m2n0p1mp3cxd2rnamzvyych0` and price `pri_01m2n0p21kzx2crfnp99fph3v4`. Production uses product `pro_01m3ems5s0zs9f9qjdebp2c3y7` and price `pri_01m3ems5yqsxjerf0k2rdpnxwg`. The current production deployment must remain configured as `sandbox` until a separately authorized Live activation.
+
+Checkout creates a server-side transaction for the selected fixed price and passes only its transaction ID to Paddle.js. The catalog price restricts quantity to exactly one. Webhooks use the matching environment's signing secret and official Paddle SDK against the raw request body, then validate `transaction.completed`, a captured payment attempt, stored transaction ID, report ID, payment ID, selected product, selected price, one-time billing shape, quantity, amount, currency, and zero discount. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL or client event is never accepted as proof of payment.
+
+For Sandbox, configure the default payment link as `${APP_ORIGIN}/checkout` and a Sandbox notification destination at `${APP_ORIGIN}/api/paddle/webhook` subscribed only to `transaction.completed`. Before any later Live activation, drain Sandbox payments in `creating` or `pending`, build with the production public values, configure the separate Live runtime secrets, and test the complete Live path under separate authorization. This repository change does not activate Live payments.
 
 ### Legacy Stripe rollback path
 
@@ -118,7 +124,7 @@ Server-side operational failures are sent to Sentry only when marked `alertable`
 
 1. Verify the service name/domain/support mailbox; review legal terms for the operator and jurisdiction.
 2. Choose public production hosting/access and update the central canonical origin. Private preview publication does not expose anonymous public access or SEO indexing.
-3. Configure and test Paddle Sandbox checkout → `transaction.completed` webhook delivery → paid downloads. Live Paddle remains disabled.
+3. Keep Paddle configured as `sandbox` and test checkout → `transaction.completed` webhook delivery → paid downloads. Activate the implemented production selector only through a separate reviewed cutover; Live Paddle remains disabled.
 4. Configure optional OpenAI and Supabase Auth; test real providers before describing them as live.
 5. Verify retention Cron Events and error alerts; perform real-bank parsing QA and a security review.
 6. Register Google Search Console and Bing Webmaster Tools after public deployment.

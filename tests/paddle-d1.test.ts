@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
-  PADDLE_PRICE_ID,
-  PADDLE_PRODUCT_ID,
+  PADDLE_CATALOG,
   PADDLE_UNFULFILLABLE_REASON,
   PADDLE_UNFULFILLABLE_STATUS,
 } from "../lib/paddle-payment-core";
+
+const PADDLE_PRODUCT_ID = PADDLE_CATALOG.sandbox.productId;
+const PADDLE_PRICE_ID = PADDLE_CATALOG.sandbox.priceId;
 import { paddleCheckoutSql, paddleFinalizeSql } from "../lib/paddle-d1";
 
 function applyMigration(database: DatabaseSync, name: string) {

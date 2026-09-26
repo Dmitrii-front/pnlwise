@@ -38,17 +38,13 @@ import { AccountPrompt } from "./account";
 import { DeleteData } from "./session";
 import { disclaimer } from "./shared";
 import { reportWorkflowPath, reportWorkflowStep } from "@/lib/report-workflow";
+import { paddleClientConfiguration } from "@/lib/paddle-client";
 type Pnl = ReturnType<typeof calculatePnl>;
 let paddlePromise: Promise<Paddle | undefined> | undefined;
-function getPaddleSandbox() {
-  const token = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN;
-  const environment = process.env.NEXT_PUBLIC_PADDLE_ENV;
-  if (
-    !token?.startsWith("test_") ||
-    (environment !== undefined && environment !== "sandbox")
-  )
-    throw new Error("Paddle Sandbox checkout is not configured.");
-  paddlePromise ??= initializePaddle({ token, environment: "sandbox" });
+function getPaddle() {
+  const configuration = paddleClientConfiguration();
+  if (!configuration) throw new Error("Paddle checkout is not configured.");
+  paddlePromise ??= initializePaddle(configuration);
   return paddlePromise;
 }
 export default function ReportView({
@@ -137,8 +133,8 @@ export default function ReportView({
         window.location.assign(d.url);
         return;
       }
-      const paddle = await getPaddleSandbox();
-      if (!paddle) throw Error("Paddle Sandbox checkout is unavailable.");
+      const paddle = await getPaddle();
+      if (!paddle) throw Error("Paddle checkout is unavailable.");
       paddle.Checkout.open({
         transactionId: d.transactionId,
         settings: {
@@ -571,14 +567,12 @@ export default function ReportView({
             <DialogTitle>Your P&L, ready to download.</DialogTitle>
             <DialogDescription>
               One payment of {money(price)} plus applicable tax unlocks your PDF
-              statement, Excel workbook, and transaction report. Paddle Sandbox
-              will handle the secure test checkout. For transactions processed
-              through Paddle, Paddle acts as the authorized reseller and
-              Merchant of Record and handles payment processing and applicable
-              transaction taxes under its{" "}
-              <a href="https://www.paddle.com/legal/buyer-terms">
-                Buyer Terms
-              </a>
+              statement, Excel workbook, and transaction report. Paddle will
+              handle the secure checkout. For transactions processed through
+              Paddle, Paddle acts as the authorized reseller and Merchant of
+              Record and handles payment processing and applicable transaction
+              taxes under its{" "}
+              <a href="https://www.paddle.com/legal/buyer-terms">Buyer Terms</a>
               .
             </DialogDescription>
           </DialogHeader>

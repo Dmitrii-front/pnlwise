@@ -1,6 +1,6 @@
 import { api, json, getReport, price } from "@/lib/server";
 import { calculateDraftPnl, needsReview } from "@/lib/domain";
-import { paddleSandboxConfigured } from "@/lib/paddle";
+import { paddleConfigured } from "@/lib/paddle";
 export const GET = (
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -20,6 +20,6 @@ export const GET = (
           : null,
       reviewCount: report.transactions.filter(needsReview).length,
       priceCents: price(),
-      checkoutEnabled: paddleSandboxConfigured(),
+      checkoutEnabled: paddleConfigured(),
     });
   });

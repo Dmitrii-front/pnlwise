@@ -17,33 +17,19 @@ import { reportOperationalError } from "./monitoring";
 import {
   PADDLE_CURRENCY,
   PADDLE_PRICE_AMOUNT,
-  PADDLE_PRICE_ID,
-  PADDLE_PRODUCT_ID,
   PADDLE_UNFULFILLABLE_REASON,
   PADDLE_UNFULFILLABLE_STATUS,
   fulfillPaddlePayment,
-  isPaddleSandboxApiKey,
-  isPaddleSandboxConfiguration,
+  paddleConfiguration,
+  paddlePurchaseKey,
   paddleTransactionInput,
   type PaddlePaymentStore,
 } from "./paddle-payment-core";
 
-function sandboxPaddle() {
+function currentPaddleConfiguration() {
   const apiKey = setting("PADDLE_API_KEY");
-  if (!isPaddleSandboxApiKey(apiKey))
-    throw new AppError(
-      "Checkout is restricted to Paddle Sandbox credentials.",
-      503,
-    );
-  return new Paddle(apiKey!, {
-    environment: Environment.sandbox,
-    logLevel: LogLevel.error,
-  });
-}
-
-export function paddleSandboxConfigured() {
-  return isPaddleSandboxConfiguration({
-    apiKey: setting("PADDLE_API_KEY"),
+  const configuration = paddleConfiguration({
+    apiKey,
     clientToken: setting("NEXT_PUBLIC_PADDLE_CLIENT_TOKEN"),
     environment: setting("PADDLE_ENVIRONMENT"),
     publicEnvironment: setting("NEXT_PUBLIC_PADDLE_ENV"),
@@ -52,6 +38,29 @@ export function paddleSandboxConfigured() {
     amount: price(),
     origin: setting("APP_ORIGIN"),
   });
+  if (!configuration)
+    throw new AppError("Paddle checkout is not configured correctly.", 503);
+  return { ...configuration, apiKey: apiKey! };
+}
+
+function currentPaddle() {
+  const configuration = currentPaddleConfiguration();
+  return new Paddle(configuration.apiKey, {
+    environment:
+      configuration.environment === "sandbox"
+        ? Environment.sandbox
+        : Environment.production,
+    logLevel: LogLevel.error,
+  });
+}
+
+export function paddleConfigured() {
+  try {
+    currentPaddleConfiguration();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function createPaddleCheckout(
@@ -59,15 +68,16 @@ export async function createPaddleCheckout(
   paymentId: string,
   origin: string,
 ) {
-  if (!paddleSandboxConfigured())
+  if (!paddleConfigured())
     throw new AppError(
       "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
       503,
     );
   let transaction;
   try {
-    transaction = await sandboxPaddle().transactions.create({
-      ...paddleTransactionInput(reportId, paymentId),
+    const configuration = currentPaddleConfiguration();
+    transaction = await currentPaddle().transactions.create({
+      ...paddleTransactionInput(configuration.catalog, reportId, paymentId),
       checkout: {
         url: `${origin}/checkout?report=${encodeURIComponent(reportId)}`,
       },
@@ -85,6 +95,7 @@ export async function createPaddleCheckout(
       },
     );
   }
+  const { catalog } = currentPaddleConfiguration();
   const item = transaction.items[0];
   if (
     !transaction.id ||
@@ -93,8 +104,8 @@ export async function createPaddleCheckout(
     transaction.currencyCode !== PADDLE_CURRENCY ||
     transaction.items.length !== 1 ||
     item?.quantity !== 1 ||
-    item.price?.id !== PADDLE_PRICE_ID ||
-    item.price.productId !== PADDLE_PRODUCT_ID ||
+    item.price?.id !== catalog.priceId ||
+    item.price.productId !== catalog.productId ||
     item.price.billingCycle !== null ||
     item.price.trialPeriod !== null ||
     item.price.unitPrice.amount !== String(PADDLE_PRICE_AMOUNT) ||
@@ -116,7 +127,7 @@ export async function createPaddleCheckout(
 }
 
 export function paddleWebhookVerifier() {
-  return sandboxPaddle().webhooks;
+  return currentPaddle().webhooks;
 }
 
 const paddleCheckoutStore: PaddleCheckoutStore = {
@@ -188,7 +199,7 @@ const paddleCheckoutStore: PaddleCheckoutStore = {
 
 async function getPaddleCheckoutState(transactionId: string) {
   try {
-    const transaction = await sandboxPaddle().transactions.get(transactionId);
+    const transaction = await currentPaddle().transactions.get(transactionId);
     return { status: transaction.status };
   } catch (error) {
     throw new AppError(
@@ -211,8 +222,10 @@ export async function getOrCreatePaddleCheckout(
   amount: number,
   origin: string,
 ) {
+  const { catalog } = currentPaddleConfiguration();
   return ensurePaddleCheckout({
     reportId,
+    purchaseKey: paddlePurchaseKey(reportId, catalog),
     amount,
     store: paddleCheckoutStore,
     createTransaction: (targetReportId, paymentId) =>
@@ -276,6 +289,7 @@ export async function fulfillPaddleTransaction(
       event.data,
       event.eventId,
       d1PaddlePaymentStore,
+      currentPaddleConfiguration().catalog,
     );
   } catch {
     throw new AppError(

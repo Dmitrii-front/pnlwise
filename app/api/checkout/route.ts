@@ -12,10 +12,7 @@ import {
   track,
 } from "@/lib/server";
 import { needsReview } from "@/lib/domain";
-import {
-  getOrCreatePaddleCheckout,
-  paddleSandboxConfigured,
-} from "@/lib/paddle";
+import { getOrCreatePaddleCheckout, paddleConfigured } from "@/lib/paddle";
 import { PADDLE_PRICE_AMOUNT } from "@/lib/paddle-payment-core";
 export const POST = (req: Request) =>
   api(async () => {
@@ -48,7 +45,7 @@ export const POST = (req: Request) =>
           alertable: true,
         },
       );
-    if (!origin || !paddleSandboxConfigured())
+    if (!origin || !paddleConfigured())
       throw new AppError(
         "Purchases are not enabled yet. Your free report preview is saved. Please check back later.",
         503,

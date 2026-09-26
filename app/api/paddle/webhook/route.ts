@@ -3,7 +3,11 @@ import {
   type TransactionCompletedEvent,
 } from "@paddle/paddle-node-sdk";
 import { api, json, setting, AppError } from "@/lib/server";
-import { fulfillPaddleTransaction, paddleWebhookVerifier } from "@/lib/paddle";
+import {
+  fulfillPaddleTransaction,
+  paddleConfigured,
+  paddleWebhookVerifier,
+} from "@/lib/paddle";
 import {
   isPaddleNotificationSecret,
   unmarshalPaddleWebhook,
@@ -17,17 +21,12 @@ import {
 export const POST = (req: Request) =>
   api(async () => {
     const secret = setting("PADDLE_NOTIFICATION_WEBHOOK_SECRET");
-    if (!isPaddleNotificationSecret(secret))
-      throw new AppError(
-        "Paddle Sandbox webhook is not configured.",
-        503,
-        undefined,
-        {
-          code: "PADDLE_WEBHOOK_CONFIG_INVALID",
-          stage: "paddle.webhook.configuration",
-          alertable: true,
-        },
-      );
+    if (!paddleConfigured() || !isPaddleNotificationSecret(secret))
+      throw new AppError("Paddle webhook is not configured.", 503, undefined, {
+        code: "PADDLE_WEBHOOK_CONFIG_INVALID",
+        stage: "paddle.webhook.configuration",
+        alertable: true,
+      });
     let payload: string;
     try {
       payload = await readBoundedRequestText(req, MAX_API_BODY_BYTES);

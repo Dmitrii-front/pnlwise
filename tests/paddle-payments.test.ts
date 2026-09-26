@@ -9,26 +9,30 @@ import {
 } from "../lib/abuse-protection";
 import {
   PADDLE_CURRENCY,
+  PADDLE_CATALOG,
   PADDLE_PRICE_AMOUNT,
-  PADDLE_PRICE_ID,
-  PADDLE_PRODUCT_ID,
   PADDLE_UNFULFILLABLE_REASON,
   PADDLE_UNFULFILLABLE_STATUS,
-  fulfillPaddlePayment,
+  fulfillPaddlePayment as fulfillPaddlePaymentForCatalog,
+  isPaddleApiKey,
+  isPaddleClientToken,
   isPaddleNotificationSecret,
-  isPaddleSandboxApiKey,
-  isPaddleSandboxClientToken,
-  isPaddleSandboxConfiguration,
-  isPaddleSandboxEnvironment,
+  paddleConfiguration,
+  paddleEnvironment,
   paddleTransactionInput,
   paddlePurchaseKey,
   unmarshalPaddleWebhook,
   type PaddlePaymentRecord,
   type PaddlePaymentStore,
+  type PaddleCatalog,
   type PaddleTransactionForFulfillment,
 } from "../lib/paddle-payment-core";
 
-const paymentId = paddlePurchaseKey("report-1");
+const sandboxCatalog = PADDLE_CATALOG.sandbox;
+const liveCatalog = PADDLE_CATALOG.production;
+const PADDLE_PRODUCT_ID = sandboxCatalog.productId;
+const PADDLE_PRICE_ID = sandboxCatalog.priceId;
+const paymentId = paddlePurchaseKey("report-1", sandboxCatalog);
 const notificationSecret =
   "pdl_ntfset_01m2n7d5jhp19ef6kx6tbsdm06_abcdEFGH/ijklMNOP+qrstUVWxyz";
 const basePayment: PaddlePaymentRecord = {
@@ -131,6 +135,15 @@ class MemoryPaddlePaymentStore implements PaddlePaymentStore {
   }
 }
 
+function fulfillPaddlePayment(
+  transaction: PaddleTransactionForFulfillment,
+  eventId: string,
+  store: PaddlePaymentStore,
+  catalog: PaddleCatalog = sandboxCatalog,
+) {
+  return fulfillPaddlePaymentForCatalog(transaction, eventId, store, catalog);
+}
+
 function readyReport(paid = false) {
   const report = sampleReport();
   return {
@@ -163,33 +176,69 @@ async function paddleSignature(payload: string, secret: string, time: number) {
   return `ts=${time};h1=${signature}`;
 }
 
-test("checkout input fixes the Sandbox catalog item and metadata", () => {
-  assert.deepEqual(paddleTransactionInput("report-1", paymentId), {
-    items: [{ priceId: PADDLE_PRICE_ID, quantity: 1 }],
-    currencyCode: "USD",
-    customData: { reportId: "report-1", paymentId },
-  });
+test("checkout input fixes the selected catalog item and metadata", () => {
+  assert.deepEqual(
+    paddleTransactionInput(sandboxCatalog, "report-1", paymentId),
+    {
+      items: [{ priceId: PADDLE_PRICE_ID, quantity: 1 }],
+      currencyCode: "USD",
+      customData: { reportId: "report-1", paymentId },
+    },
+  );
+  assert.deepEqual(
+    paddleTransactionInput(liveCatalog, "report-1", paymentId).items,
+    [{ priceId: "pri_01m3ems5yqsxjerf0k2rdpnxwg", quantity: 1 }],
+  );
 });
 
 test("purchase identity is stable across report revisions", () => {
   assert.equal(
-    paddlePurchaseKey("report-1"),
+    paddlePurchaseKey("report-1", sandboxCatalog),
     `paddle:report-1:${PADDLE_PRODUCT_ID}:${PADDLE_PRICE_ID}`,
   );
 });
 
-test("Sandbox configuration rejects Live credentials", () => {
-  assert.equal(isPaddleSandboxApiKey("pdl_sdbx_apikey_example"), true);
-  assert.equal(isPaddleSandboxApiKey("pdl_live_apikey_example"), false);
-  assert.equal(isPaddleSandboxClientToken("test_example"), true);
-  assert.equal(isPaddleSandboxClientToken("live_example"), false);
-  assert.equal(isPaddleSandboxEnvironment(undefined), true);
-  assert.equal(isPaddleSandboxEnvironment("sandbox"), true);
-  assert.equal(isPaddleSandboxEnvironment("production"), false);
-  assert.equal(isPaddleSandboxEnvironment("live"), false);
+test("Paddle environments and credential formats fail closed", () => {
+  assert.equal(paddleEnvironment(undefined), "sandbox");
+  assert.equal(paddleEnvironment("sandbox"), "sandbox");
+  assert.equal(paddleEnvironment("production"), "production");
+  assert.equal(paddleEnvironment("live"), null);
+  assert.equal(isPaddleApiKey("pdl_sdbx_apikey_example", "sandbox"), true);
+  assert.equal(isPaddleApiKey("pdl_live_apikey_example", "sandbox"), false);
+  assert.equal(isPaddleApiKey("pdl_live_apikey_example", "production"), true);
+  assert.equal(isPaddleClientToken("test_example", "sandbox"), true);
+  assert.equal(isPaddleClientToken("live_example", "sandbox"), false);
+  assert.equal(isPaddleClientToken("live_example", "production"), true);
 });
 
-test("Sandbox checkout configuration requires verified operational identity", () => {
+test("valid Sandbox and Live configurations select the matching catalogs", () => {
+  const sandbox = {
+    apiKey: "pdl_sdbx_apikey_example",
+    clientToken: "test_example",
+    environment: "sandbox",
+    publicEnvironment: "sandbox",
+    notificationSecret,
+    identityConfigured: true,
+    amount: PADDLE_PRICE_AMOUNT,
+    origin: "https://example.com",
+  };
+  assert.deepEqual(paddleConfiguration(sandbox), {
+    environment: "sandbox",
+    catalog: sandboxCatalog,
+  });
+  assert.deepEqual(
+    paddleConfiguration({
+      ...sandbox,
+      apiKey: "pdl_live_apikey_example",
+      clientToken: "live_example",
+      environment: "production",
+      publicEnvironment: "production",
+    }),
+    { environment: "production", catalog: liveCatalog },
+  );
+});
+
+test("mixed and incomplete Paddle configurations are rejected", () => {
   const configured = {
     apiKey: "pdl_sdbx_apikey_example",
     clientToken: "test_example",
@@ -200,11 +249,17 @@ test("Sandbox checkout configuration requires verified operational identity", ()
     amount: PADDLE_PRICE_AMOUNT,
     origin: "https://example.com",
   };
-  assert.equal(isPaddleSandboxConfiguration(configured), true);
-  assert.equal(
-    isPaddleSandboxConfiguration({ ...configured, identityConfigured: false }),
-    false,
-  );
+  for (const invalid of [
+    { ...configured, apiKey: "pdl_live_apikey_example" },
+    { ...configured, clientToken: "live_example" },
+    { ...configured, publicEnvironment: "production" },
+    { ...configured, apiKey: undefined },
+    { ...configured, clientToken: undefined },
+    { ...configured, notificationSecret: undefined },
+    { ...configured, identityConfigured: false },
+    { ...configured, origin: undefined },
+  ])
+    assert.equal(paddleConfiguration(invalid), null);
 });
 
 test("notification secret validation accepts opaque Paddle signing material", () => {
@@ -487,6 +542,20 @@ test("wrong report, price, product, quantity, amount, or currency never unlocks"
     assert.equal(store.reportPaid, false);
     assert.equal(store.paymentCompletedEvents.size, 0);
   }
+});
+
+test("fulfillment rejects a transaction from the other Paddle environment", async () => {
+  const store = new MemoryPaddlePaymentStore();
+  assert.deepEqual(
+    await fulfillPaddlePayment(
+      completedTransaction(),
+      "evt_wrong_environment",
+      store,
+      liveCatalog,
+    ),
+    { status: "error", error: "verification_mismatch" },
+  );
+  assert.equal(store.reportPaid, false);
 });
 
 test("incomplete, failed, or canceled payments never unlock", async () => {

@@ -1,7 +1,19 @@
 import type { Paddle } from "@paddle/paddle-node-sdk";
 
-export const PADDLE_PRODUCT_ID = "pro_01m2n0p1mp3cxd2rnamzvyych0";
-export const PADDLE_PRICE_ID = "pri_01m2n0p21kzx2crfnp99fph3v4";
+export type PaddleEnvironment = "sandbox" | "production";
+
+export const DEFAULT_PADDLE_ENVIRONMENT: PaddleEnvironment = "sandbox";
+export const PADDLE_CATALOG = {
+  sandbox: {
+    productId: "pro_01m2n0p1mp3cxd2rnamzvyych0",
+    priceId: "pri_01m2n0p21kzx2crfnp99fph3v4",
+  },
+  production: {
+    productId: "pro_01m3ems5s0zs9f9qjdebp2c3y7",
+    priceId: "pri_01m3ems5yqsxjerf0k2rdpnxwg",
+  },
+} as const;
+export type PaddleCatalog = (typeof PADDLE_CATALOG)[PaddleEnvironment];
 export const PADDLE_PRICE_AMOUNT = 1299;
 export const PADDLE_CURRENCY = "USD";
 
@@ -72,19 +84,34 @@ export type PaddleFulfillmentResult =
   | { status: "ignored" }
   | { status: "error"; error: "not_registered" | "verification_mismatch" };
 
-export function isPaddleSandboxApiKey(key: string | undefined) {
-  return !!key && /^pdl_sdbx_apikey_[A-Za-z0-9_-]+$/.test(key);
+export function paddleEnvironment(
+  value: string | undefined,
+): PaddleEnvironment | null {
+  if (value === undefined || value === "") return DEFAULT_PADDLE_ENVIRONMENT;
+  return value === "sandbox" || value === "production" ? value : null;
 }
 
-export function isPaddleSandboxClientToken(token: string | undefined) {
-  return !!token && /^test_[A-Za-z0-9_-]+$/.test(token);
+export function isPaddleApiKey(
+  key: string | undefined,
+  environment: PaddleEnvironment,
+) {
+  if (!key) return false;
+  return environment === "sandbox"
+    ? /^pdl_sdbx_apikey_[A-Za-z0-9_-]+$/.test(key)
+    : /^pdl_live_apikey_[A-Za-z0-9_-]+$/.test(key);
 }
 
-export function isPaddleSandboxEnvironment(environment: string | undefined) {
-  return environment === undefined || environment === "sandbox";
+export function isPaddleClientToken(
+  token: string | undefined,
+  environment: PaddleEnvironment,
+) {
+  if (!token) return false;
+  return environment === "sandbox"
+    ? /^test_[A-Za-z0-9_-]+$/.test(token)
+    : /^live_[A-Za-z0-9_-]+$/.test(token);
 }
 
-export function isPaddleSandboxConfiguration(input: {
+export function paddleConfiguration(input: {
   apiKey: string | undefined;
   clientToken: string | undefined;
   environment: string | undefined;
@@ -93,17 +120,24 @@ export function isPaddleSandboxConfiguration(input: {
   identityConfigured: boolean;
   amount: number;
   origin: string | undefined;
-}) {
-  return (
-    isPaddleSandboxApiKey(input.apiKey) &&
-    isPaddleSandboxClientToken(input.clientToken) &&
-    isPaddleSandboxEnvironment(input.environment) &&
-    isPaddleSandboxEnvironment(input.publicEnvironment) &&
-    isPaddleNotificationSecret(input.notificationSecret) &&
-    input.identityConfigured &&
-    input.amount === PADDLE_PRICE_AMOUNT &&
-    !!input.origin
-  );
+}): { environment: PaddleEnvironment; catalog: PaddleCatalog } | null {
+  const environment = paddleEnvironment(input.environment);
+  const publicEnvironment = paddleEnvironment(input.publicEnvironment);
+  if (
+    !environment ||
+    !publicEnvironment ||
+    environment !== publicEnvironment ||
+    !isPaddleApiKey(input.apiKey, environment) ||
+    !isPaddleClientToken(input.clientToken, environment) ||
+    !(
+      isPaddleNotificationSecret(input.notificationSecret) &&
+      input.identityConfigured &&
+      input.amount === PADDLE_PRICE_AMOUNT &&
+      !!input.origin
+    )
+  )
+    return null;
+  return { environment, catalog: PADDLE_CATALOG[environment] };
 }
 
 export function isPaddleNotificationSecret(secret: string | undefined) {
@@ -112,16 +146,20 @@ export function isPaddleNotificationSecret(secret: string | undefined) {
   return value.length >= 32 && !/\s|[\u0000-\u001f\u007f]/.test(value);
 }
 
-export function paddleTransactionInput(reportId: string, paymentId: string) {
+export function paddleTransactionInput(
+  catalog: PaddleCatalog,
+  reportId: string,
+  paymentId: string,
+) {
   return {
-    items: [{ priceId: PADDLE_PRICE_ID, quantity: 1 }],
+    items: [{ priceId: catalog.priceId, quantity: 1 }],
     currencyCode: PADDLE_CURRENCY as "USD",
     customData: { reportId, paymentId },
   };
 }
 
-export function paddlePurchaseKey(reportId: string) {
-  return `paddle:${reportId}:${PADDLE_PRODUCT_ID}:${PADDLE_PRICE_ID}`;
+export function paddlePurchaseKey(reportId: string, catalog: PaddleCatalog) {
+  return `paddle:${reportId}:${catalog.productId}:${catalog.priceId}`;
 }
 
 function nonNegativeInteger(value: string | undefined) {
@@ -145,6 +183,7 @@ export async function fulfillPaddlePayment(
   transaction: PaddleTransactionForFulfillment,
   eventId: string,
   store: PaddlePaymentStore,
+  catalog: PaddleCatalog,
 ): Promise<PaddleFulfillmentResult> {
   if (transaction.status !== "completed") return { status: "ignored" };
   const payment = await store.findByPaddleTransaction(transaction.id);
@@ -184,8 +223,8 @@ export async function fulfillPaddlePayment(
     transaction.discountId === null &&
     transaction.items.length === 1 &&
     item?.quantity === 1 &&
-    item.price?.id === PADDLE_PRICE_ID &&
-    item.price.productId === PADDLE_PRODUCT_ID &&
+    item.price?.id === catalog.priceId &&
+    item.price.productId === catalog.productId &&
     item.price.billingCycle === null &&
     item.price.trialPeriod === null &&
     item.price.unitPrice.amount === String(PADDLE_PRICE_AMOUNT) &&
