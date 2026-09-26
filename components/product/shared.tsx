@@ -102,6 +102,10 @@ export function Footer() {
           </div>
           <nav aria-label="Resources">
             <a href="/bank-statement-to-pnl">Bank statement to P&L</a>
+            <a href="/profit-and-loss-statement-generator">
+              P&amp;L statement generator
+            </a>
+            <a href="/income-statement-generator">Income statement generator</a>
             <a href="/profit-and-loss-for-self-employed">For self-employed</a>
             <a href="/profit-and-loss-for-contractors">For contractors</a>
             <a href="/profit-and-loss-for-small-business">

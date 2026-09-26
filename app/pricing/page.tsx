@@ -3,11 +3,15 @@ import { Header, Footer, UploadLink, Faq } from "@/components/product/shared";
 import { Check } from "lucide-react";
 import { price } from "@/lib/server";
 import { money } from "@/lib/domain";
+import { socialMetadata } from "@/components/product/seo";
+const title = "Pricing — One Report, One Payment";
+const description =
+  "Preview your P&L for free. One payment unlocks a PDF, Excel workbook, and transaction export. No subscription.";
 export const metadata = {
-  title: "Pricing — One Report, One Payment",
-  description:
-    "Preview your P&L for free. One payment unlocks a PDF, Excel workbook, and transaction export. No subscription.",
+  title,
+  description,
   alternates: { canonical: "/pricing" },
+  ...socialMetadata(title, description, "/pricing"),
 };
 export default function Page() {
   return (
@@ -51,9 +55,7 @@ export default function Page() {
               For transactions processed through Paddle, Paddle acts as the
               authorized reseller and Merchant of Record and handles payment
               processing and applicable transaction taxes under its{" "}
-              <a href="https://www.paddle.com/legal/buyer-terms">
-                Buyer Terms
-              </a>
+              <a href="https://www.paddle.com/legal/buyer-terms">Buyer Terms</a>
               .
             </small>
           </article>

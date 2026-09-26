@@ -3,6 +3,7 @@ const antiFramingHeaders = [
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
   { key: "X-Frame-Options", value: "DENY" },
 ];
+const noIndexHeaders = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -41,17 +42,29 @@ const nextConfig: NextConfig = {
       {
         source: "/report/:path*",
         headers: [
-          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          ...noIndexHeaders,
           { key: "Cache-Control", value: "private, no-store" },
         ],
       },
       {
+        source: "/generate",
+        headers: noIndexHeaders,
+      },
+      {
         source: "/generate/:path*",
-        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+        headers: noIndexHeaders,
+      },
+      {
+        source: "/checkout",
+        headers: noIndexHeaders,
       },
       {
         source: "/checkout/:path*",
-        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+        headers: noIndexHeaders,
+      },
+      {
+        source: "/sign-in",
+        headers: noIndexHeaders,
       },
     ];
   },

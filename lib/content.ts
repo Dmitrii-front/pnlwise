@@ -10,7 +10,7 @@ export type ContentPage = {
 };
 export const contentPages: Record<string, ContentPage> = {
   "bank-statement-to-pnl": {
-    title: "Bank Statement to P&L Generator | Create a Profit & Loss Statement",
+    title: "Bank Statement to P&L Generator",
     description:
       "Upload PDF, CSV or Excel bank statements and turn your transactions into a clear Profit & Loss statement. Review categories and download your P&L in minutes.",
     eyebrow: "FROM BANK ACTIVITY TO BUSINESS CLARITY",

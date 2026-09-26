@@ -1,10 +1,14 @@
 import { config } from "@/lib/config";
 import { Header, Footer, disclaimer } from "@/components/product/shared";
+import { socialMetadata } from "@/components/product/seo";
 import { operationalIdentity } from "@/lib/server";
+const title = "Terms of Service";
+const description = `Terms for creating estimated financial reports with ${config.name}, including your review responsibilities, payments, and report limitations.`;
 export const metadata = {
-  title: "Terms of Service",
-  description: `Terms for creating estimated financial reports with ${config.name}, including your review responsibilities, payments, and report limitations.`,
+  title,
+  description,
   alternates: { canonical: "/terms" },
+  ...socialMetadata(title, description, "/terms"),
 };
 export default function Page() {
   const identity = operationalIdentity();
@@ -62,9 +66,9 @@ export default function Page() {
             <a href="https://www.paddle.com/legal/buyer-terms">
               Paddle Buyer Terms
             </a>
-            . There is no recurring subscription. Downloads unlock after
-            payment verification. Keep your downloaded files; clearing your
-            session cookie or deleting report data may remove your access.
+            . There is no recurring subscription. Downloads unlock after payment
+            verification. Keep your downloaded files; clearing your session
+            cookie or deleting report data may remove your access.
           </p>
         </section>
         <section>
@@ -77,9 +81,8 @@ export default function Page() {
             <a href="https://www.paddle.com/legal/refund-policy">
               transaction Refund Policy
             </a>{" "}
-            and{" "}
-            <a href="https://paddle.net/">Buyer Support</a>. Rights that apply
-            under mandatory law are not waived by these terms.
+            and <a href="https://paddle.net/">Buyer Support</a>. Rights that
+            apply under mandatory law are not waived by these terms.
           </p>
         </section>
         <section>

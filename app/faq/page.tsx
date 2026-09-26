@@ -1,9 +1,13 @@
 import { Header, Footer, UploadLink, Faq } from "@/components/product/shared";
+import { socialMetadata } from "@/components/product/seo";
+const title = "Frequently Asked Questions";
+const description =
+  "Answers about bank statement uploads, transaction categories, report limits, payment, downloads, and privacy.";
 export const metadata = {
-  title: "Frequently Asked Questions",
-  description:
-    "Answers about bank statement uploads, transaction categories, report limits, payment, downloads, and privacy.",
+  title,
+  description,
   alternates: { canonical: "/faq" },
+  ...socialMetadata(title, description, "/faq"),
 };
 export default function Page() {
   return (

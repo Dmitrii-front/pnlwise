@@ -2,10 +2,14 @@ import { config } from "@/lib/config";
 import { Header, Footer } from "@/components/product/shared";
 import { DeleteData } from "@/components/product/session";
 import { operationalIdentity } from "@/lib/server";
+import { socialMetadata } from "@/components/product/seo";
+const title = "Privacy Policy";
+const description = `How ${config.name} collects, uses, retains, and deletes uploaded statement data and payment records.`;
 export const metadata = {
-  title: "Privacy Policy",
-  description: `How ${config.name} collects, uses, retains, and deletes uploaded statement data and payment records.`,
+  title,
+  description,
   alternates: { canonical: "/privacy" },
+  ...socialMetadata(title, description, "/privacy"),
 };
 export default function Page() {
   const identity = operationalIdentity();
@@ -114,12 +118,12 @@ export default function Page() {
           <p>
             Cloudflare Workers runs the application and Cloudflare D1 stores
             application data. Cloudflare processes infrastructure and network
-            request metadata needed to provide those services; Pnlwise&apos;s own
-            rate-limit records use the short-lived hashed identifiers described
-            above. For transactions processed through Paddle, Pnlwise supplies
-            the product service and Paddle acts as the authorized reseller and
-            Merchant of Record, handling payment processing and applicable
-            transaction taxes under its{" "}
+            request metadata needed to provide those services; Pnlwise&apos;s
+            own rate-limit records use the short-lived hashed identifiers
+            described above. For transactions processed through Paddle, Pnlwise
+            supplies the product service and Paddle acts as the authorized
+            reseller and Merchant of Record, handling payment processing and
+            applicable transaction taxes under its{" "}
             <a href="https://www.paddle.com/legal/buyer-terms">Buyer Terms</a>{" "}
             and{" "}
             <a href="https://www.paddle.com/legal/privacy">Privacy Notice</a>.

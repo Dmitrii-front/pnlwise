@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Miniflare, type ModuleDefinition } from "miniflare";
 import test from "node:test";
+import { publicRoutes } from "../lib/content";
 import { NON_AI_BUDGETS } from "../lib/non-ai-budget";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -27,7 +28,7 @@ interface GeneratedWranglerConfig {
   workers_dev?: boolean;
   preview_urls?: boolean;
   triggers?: { crons?: string[] };
-  d1_databases?: typeof productionDatabase[];
+  d1_databases?: (typeof productionDatabase)[];
   vars?: Record<string, unknown>;
 }
 
@@ -115,75 +116,85 @@ test(
   "generated staging and production Workers preserve retention configuration and behavior",
   { timeout: 180_000 },
   async (context) => {
-    await context.test("staging excludes the production cron and database", async () => {
-      build("staging");
-      const config = await generatedConfig();
-      assert.deepEqual(config.triggers?.crons ?? [], []);
-      assert.deepEqual(config.d1_databases, [stagingDatabase]);
-      assert.notDeepEqual(config.d1_databases, [productionDatabase]);
-      assert.deepEqual(config.vars, {});
-      assert.equal(config.workers_dev, undefined);
-      assert.equal(config.preview_urls, undefined);
+    await context.test(
+      "staging excludes the production cron and database",
+      async () => {
+        build("staging");
+        const config = await generatedConfig();
+        assert.deepEqual(config.triggers?.crons ?? [], []);
+        assert.deepEqual(config.d1_databases, [stagingDatabase]);
+        assert.notDeepEqual(config.d1_databases, [productionDatabase]);
+        assert.deepEqual(config.vars, {});
+        assert.equal(config.workers_dev, undefined);
+        assert.equal(config.preview_urls, undefined);
 
-      const entryPath = join(serverRoot, config.main);
-      const moduleFiles = await javascriptModules(serverRoot);
-      const modules: ModuleDefinition[] = [
-        entryPath,
-        ...moduleFiles.filter((path) => path !== entryPath),
-      ].map((path) => ({ type: "ESModule", path }));
-      const stagingProofSecret = "local-staging-monitoring-proof-secret";
-      const miniflare = new Miniflare({
-        modules,
-        modulesRoot: serverRoot,
-        compatibilityDate: "2026-05-15",
-        compatibilityFlags: ["nodejs_compat"],
-        bindings: {
-          SENTRY_ENVIRONMENT: "staging",
-          MAINTENANCE_SECRET: stagingProofSecret,
-        },
-        d1Databases: { DB: "staging-proof-integration" },
-      });
-
-      try {
-        const response = await fetch(
-          new URL("/api/monitoring/proof", await miniflare.ready),
-          {
-            method: "POST",
-            redirect: "manual",
-            headers: {
-              Authorization: `Bearer ${stagingProofSecret}`,
-            },
+        const entryPath = join(serverRoot, config.main);
+        const moduleFiles = await javascriptModules(serverRoot);
+        const modules: ModuleDefinition[] = [
+          entryPath,
+          ...moduleFiles.filter((path) => path !== entryPath),
+        ].map((path) => ({ type: "ESModule", path }));
+        const stagingProofSecret = "local-staging-monitoring-proof-secret";
+        const miniflare = new Miniflare({
+          modules,
+          modulesRoot: serverRoot,
+          compatibilityDate: "2026-05-15",
+          compatibilityFlags: ["nodejs_compat"],
+          bindings: {
+            SENTRY_ENVIRONMENT: "staging",
+            MAINTENANCE_SECRET: stagingProofSecret,
           },
-        );
-        assert.equal(response.status, 502);
-        assert.equal(
-          ((await response.json()) as { error?: unknown }).error,
-          "Monitoring did not accept the proof event.",
-        );
-      } finally {
-        await miniflare.dispose();
-      }
-    });
+          d1Databases: { DB: "staging-proof-integration" },
+        });
+
+        try {
+          const response = await fetch(
+            new URL("/api/monitoring/proof", await miniflare.ready),
+            {
+              method: "POST",
+              redirect: "manual",
+              headers: {
+                Authorization: `Bearer ${stagingProofSecret}`,
+              },
+            },
+          );
+          assert.equal(response.status, 502);
+          assert.equal(
+            ((await response.json()) as { error?: unknown }).error,
+            "Monitoring did not accept the proof event.",
+          );
+        } finally {
+          await miniflare.dispose();
+        }
+      },
+    );
 
     build();
     const config = await generatedConfig();
 
-    await context.test("production contains canonical routing, cron, DB, and assets", async () => {
-      assert.equal(config.workers_dev, false);
-      assert.equal(config.preview_urls, true);
-      assert.deepEqual(config.triggers?.crons, ["17 3 * * *"]);
-      assert.deepEqual(config.d1_databases, [productionDatabase]);
-      assert.deepEqual(config.vars, {});
-      assert.equal(config.main, "index.js");
-      assert.deepEqual(
-        [...(await readFile(join(projectRoot, "dist/client/favicon.ico"))).subarray(0, 4)],
-        [0, 0, 1, 0],
-      );
-      assert.match(
-        await readFile(join(projectRoot, "dist/client/favicon.svg"), "utf8"),
-        /^<svg /,
-      );
-    });
+    await context.test(
+      "production contains canonical routing, cron, DB, and assets",
+      async () => {
+        assert.equal(config.workers_dev, false);
+        assert.equal(config.preview_urls, true);
+        assert.deepEqual(config.triggers?.crons, ["17 3 * * *"]);
+        assert.deepEqual(config.d1_databases, [productionDatabase]);
+        assert.deepEqual(config.vars, {});
+        assert.equal(config.main, "index.js");
+        assert.deepEqual(
+          [
+            ...(
+              await readFile(join(projectRoot, "dist/client/favicon.ico"))
+            ).subarray(0, 4),
+          ],
+          [0, 0, 1, 0],
+        );
+        assert.match(
+          await readFile(join(projectRoot, "dist/client/favicon.svg"), "utf8"),
+          /^<svg /,
+        );
+      },
+    );
 
     await context.test(
       "generated Worker exports fetch and scheduled retention against the DB binding",
@@ -264,17 +275,101 @@ test(
           assert.match(html, /<link rel="icon" href="\/favicon\.ico"/);
           assert.match(html, /<link rel="shortcut icon" href="\/favicon\.ico"/);
           assert.match(html, /"url":"https:\/\/pnlwise\.com"/);
-          assert.doesNotMatch(
+          assert.doesNotMatch(html, /clearledger-pnl\.to4ka-gr\.chatgpt\.site/);
+          assert.match(
             html,
-            /clearledger-pnl\.to4ka-gr\.chatgpt\.site/,
+            /<a href="\/profit-and-loss-statement-generator">P&amp;L statement generator<\/a>/,
+          );
+          assert.match(
+            html,
+            /<a href="\/income-statement-generator">Income statement generator<\/a>/,
+          );
+          assert.match(
+            html,
+            /<meta property="og:url" content="https:\/\/pnlwise\.com"/,
+          );
+
+          const publicHtml = new Map<string, string>([["/", html]]);
+          for (const path of publicRoutes.filter((path) => path !== "/")) {
+            const publicPage = await miniflare.dispatchFetch(
+              `http://pnlwise.test${path}`,
+            );
+            assert.equal(publicPage.status, 200, path);
+            assert.equal(publicPage.headers.get("x-robots-tag"), null, path);
+            const pageHtml = await publicPage.text();
+            publicHtml.set(path, pageHtml);
+            assert.ok(
+              pageHtml.includes(
+                `<link rel="canonical" href="https://pnlwise.com${path}"`,
+              ),
+              `missing production canonical for ${path}`,
+            );
+            assert.doesNotMatch(
+              pageHtml,
+              /<meta name="robots" content="[^"]*noindex/i,
+              path,
+            );
+          }
+
+          for (const path of [
+            "/",
+            "/pricing",
+            "/security",
+            "/faq",
+            "/privacy",
+            "/refund-policy",
+            "/terms",
+          ]) {
+            const pageHtml = publicHtml.get(path)!;
+            assert.match(pageHtml, /<meta property="og:title" content="[^"]+"/);
+            assert.match(
+              pageHtml,
+              /<meta property="og:description" content="[^"]+"/,
+            );
+            assert.ok(
+              pageHtml.includes(
+                `<meta property="og:url" content="${path === "/" ? "https://pnlwise.com" : `https://pnlwise.com${path}`}`,
+              ),
+              `missing Open Graph URL for ${path}`,
+            );
+            assert.match(
+              pageHtml,
+              /<meta name="twitter:title" content="[^"]+"/,
+            );
+            assert.match(
+              pageHtml,
+              /<meta name="twitter:description" content="[^"]+"/,
+            );
+          }
+
+          const seoVisibleOutput = [...publicHtml.values()].join("\n");
+          assert.doesNotMatch(
+            seoVisibleOutput,
+            /clearledger|chatgpt\.site|workers\.dev|localhost|https?:\/\/[^"'<>\s]*staging/i,
           );
 
           const sitemap = await miniflare.dispatchFetch(
             "http://pnlwise.test/sitemap.xml",
           );
           assert.equal(sitemap.status, 200);
+          assert.match(
+            sitemap.headers.get("content-type") ?? "",
+            /application\/xml/,
+          );
           const sitemapXml = await sitemap.text();
-          assert.match(sitemapXml, /<loc>https:\/\/pnlwise\.com\//);
+          const sitemapUrls = [
+            ...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g),
+          ].map((match) => match[1]);
+          assert.deepEqual(
+            sitemapUrls,
+            publicRoutes.map((path) => `https://pnlwise.com${path}`),
+          );
+          assert.equal(sitemapUrls.length, 17);
+          assert.equal(new Set(sitemapUrls).size, 17);
+          assert.doesNotMatch(
+            sitemapXml,
+            /\/(?:api|generate|report|checkout|sign-in)(?:\/|<)/,
+          );
           assert.doesNotMatch(
             sitemapXml,
             /clearledger-pnl\.to4ka-gr\.chatgpt\.site/,
@@ -284,10 +379,43 @@ test(
             "http://pnlwise.test/robots.txt",
           );
           assert.equal(robots.status, 200);
+          assert.match(robots.headers.get("content-type") ?? "", /text\/plain/);
+          const robotsText = await robots.text();
+          assert.match(robotsText, /Disallow: \/api\//);
+          assert.doesNotMatch(
+            robotsText,
+            /Disallow: \/(?:generate|report|checkout)/,
+          );
           assert.match(
-            await robots.text(),
+            robotsText,
             /Sitemap: https:\/\/pnlwise\.com\/sitemap\.xml/,
           );
+
+          for (const path of [
+            "/generate",
+            "/generate/processing?report=seo-test",
+            "/generate/review?report=seo-test",
+            "/report/sample",
+            "/checkout?_ptxn=txn_seo_test&report=seo-test",
+            "/checkout/success?report=seo-test",
+            "/checkout/cancel?report=seo-test",
+            "/sign-in",
+          ]) {
+            const privatePage = await miniflare.dispatchFetch(
+              `http://pnlwise.test${path}`,
+            );
+            assert.equal(privatePage.status, 200, path);
+            assert.equal(
+              privatePage.headers.get("x-robots-tag"),
+              "noindex, nofollow",
+              path,
+            );
+            assert.match(
+              await privatePage.text(),
+              /<meta name="robots" content="noindex, nofollow"/,
+              path,
+            );
+          }
 
           const worker = await miniflare.getWorker();
           const first = await worker.scheduled({
@@ -390,7 +518,9 @@ test(
           assert.equal(
             (
               await database
-                .prepare("SELECT COUNT(*) AS count FROM events WHERE name='landing_view'")
+                .prepare(
+                  "SELECT COUNT(*) AS count FROM events WHERE name='landing_view'",
+                )
                 .first<{ count: number }>()
             )?.count,
             1,
@@ -414,7 +544,9 @@ test(
           assert.equal(
             (
               await database
-                .prepare("SELECT COUNT(*) AS count FROM events WHERE name='landing_view'")
+                .prepare(
+                  "SELECT COUNT(*) AS count FROM events WHERE name='landing_view'",
+                )
                 .first<{ count: number }>()
             )?.count,
             1,
@@ -533,10 +665,7 @@ test(
             .prepare(
               "UPDATE rate_limits SET count=CASE WHEN key LIKE '%:hour:%' THEN ? ELSE ? END WHERE key LIKE 'abuse:parser:%'",
             )
-            .bind(
-              NON_AI_BUDGETS.parser.hourly,
-              NON_AI_BUDGETS.parser.daily,
-            )
+            .bind(NON_AI_BUDGETS.parser.hourly, NON_AI_BUDGETS.parser.daily)
             .run();
           assert.equal((await upload("SECOND FILE", cookie)).status, 429);
 

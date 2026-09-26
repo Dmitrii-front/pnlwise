@@ -1,9 +1,13 @@
 import { config } from "@/lib/config";
 import { Header, Footer, UploadLink } from "@/components/product/shared";
+import { socialMetadata } from "@/components/product/seo";
+const title = "Security & Data Handling";
+const description = `Learn how ${config.name} handles statements, anonymous sessions, transaction data, payment verification, and deletion.`;
 export const metadata = {
-  title: "Security & Data Handling",
-  description: `Learn how ${config.name} handles statements, anonymous sessions, transaction data, payment verification, and deletion.`,
+  title,
+  description,
   alternates: { canonical: "/security" },
+  ...socialMetadata(title, description, "/security"),
 };
 export default function Page() {
   return (
@@ -57,8 +61,8 @@ export default function Page() {
         <section>
           <h2>Paddle handles payment details</h2>
           <p>
-            Card details are entered in Paddle Checkout. A verified,
-            signed payment webhook is required before exports unlock. A browser
+            Card details are entered in Paddle Checkout. A verified, signed
+            payment webhook is required before exports unlock. A browser
             redirect or a payment-success URL cannot grant access.
           </p>
         </section>

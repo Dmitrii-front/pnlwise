@@ -1,11 +1,15 @@
 import { config } from "@/lib/config";
 import { Header, Footer, disclaimer } from "@/components/product/shared";
+import { socialMetadata } from "@/components/product/seo";
 import { operationalIdentity } from "@/lib/server";
 
+const title = "Refund Policy";
+const description = `Refund eligibility and support for ${config.name} digital Profit & Loss report purchases.`;
 export const metadata = {
-  title: "Refund Policy",
-  description: `Refund eligibility and support for ${config.name} digital Profit & Loss report purchases.`,
+  title,
+  description,
   alternates: { canonical: "/refund-policy" },
+  ...socialMetadata(title, description, "/refund-policy"),
 };
 
 export default function Page() {
@@ -31,13 +35,13 @@ export default function Page() {
         <section>
           <h2>One-time digital purchase</h2>
           <p>
-            {config.name} supplies and operates a digital Profit &amp; Loss report
-            service. For transactions processed through Paddle, Paddle acts as
-            the authorized reseller and Merchant of Record. The base price is{" "}
-            {price}, plus applicable transaction taxes handled by Paddle under
-            its terms. There is no subscription or recurring billing. The
-            report is generated from the bank statements you upload, and the
-            purchase unlocks its PDF, Excel, and CSV exports.
+            {config.name} supplies and operates a digital Profit &amp; Loss
+            report service. For transactions processed through Paddle, Paddle
+            acts as the authorized reseller and Merchant of Record. The base
+            price is {price}, plus applicable transaction taxes handled by
+            Paddle under its terms. There is no subscription or recurring
+            billing. The report is generated from the bank statements you
+            upload, and the purchase unlocks its PDF, Excel, and CSV exports.
           </p>
         </section>
         <section>

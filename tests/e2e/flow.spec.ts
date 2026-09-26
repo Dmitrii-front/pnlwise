@@ -251,9 +251,7 @@ test("anonymous upload, review, loan split, P&L, unpaid export, and delete", asy
   expect(payload.report.statements[0].amountConvention).toBe("credit-positive");
   expect(payload.reviewCount).toBe(4);
   await page.goto(`/generate/processing?report=${id}`);
-  await expect(page).toHaveURL(
-    new RegExp(`/generate/review\\?report=${id}$`),
-  );
+  await expect(page).toHaveURL(new RegExp(`/generate/review\\?report=${id}$`));
   const stranger = await browser.newContext();
   const other = await stranger.request.get(`/api/reports/${id}`);
   expect([401, 404]).toContain(other.status());
@@ -357,11 +355,18 @@ test("public SEO and private robots", async ({ page, request }) => {
   expect(sitemap.status()).toBe(200);
   expect(await sitemap.text()).toContain("/profit-and-loss-for-1099");
   const robots = await request.get("/robots.txt");
-  expect(await robots.text()).toContain("Disallow: /report/");
+  const robotsText = await robots.text();
+  expect(robotsText).toContain("Disallow: /api/");
+  expect(robotsText).not.toContain("Disallow: /generate");
+  expect(robotsText).not.toContain("Disallow: /report");
+  expect(robotsText).not.toContain("Disallow: /checkout");
   await page.goto("/generate");
   expect(
     await page.locator('meta[name="robots"]').getAttribute("content"),
   ).toContain("noindex");
+  expect((await page.request.get("/generate")).headers()["x-robots-tag"]).toBe(
+    "noindex, nofollow",
+  );
   const missing = await request.get("/no-such-page");
   expect(missing.status()).toBe(404);
 });
