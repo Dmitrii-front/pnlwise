@@ -1,141 +1,221 @@
 # Pnlwise
 
-Bank statements → review → deterministic P&L preview → one-time Paddle payment → PDF, XLSX, and CSV.
+Pnlwise is an AI-assisted financial reporting SaaS that transforms CSV, XLSX, and supported text-based PDF transaction exports into structured profit-and-loss reports.
 
-## Run locally
+**Live product:** [pnlwise.com](https://pnlwise.com)
 
-Node 22.13+ is required.
+Built by **Dmitrii Nadtochii** as an end-to-end SaaS product covering product architecture, frontend and backend development, financial-file processing, AI-assisted categorization, payments, testing, and Cloudflare deployment.
 
-```sh
-npm install
-npm run build:staging
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_kind_morlun.sql
-npm run dev
+Pnlwise helps independent businesses turn transaction exports into a reviewable cash-basis P&L without treating AI output as accounting truth. Users inspect uncertain classifications before the application calculates deterministic totals.
+
+## Product workflow
+
+1. Upload CSV, XLSX, or a supported text-based PDF statement.
+2. Parse and normalize transactions into a consistent model.
+3. Detect duplicates and identify transfer or loan patterns.
+4. Apply deterministic rules and AI-assisted categorization.
+5. Route uncertain classifications to the review workspace.
+6. Generate P&L totals with deterministic application logic.
+7. Verify payment through a signed server-side workflow.
+8. Export the report as PDF, XLSX, or CSV.
+
+AI assists with categorization. It does not calculate financial totals or control transaction amounts, report ownership, payment state, or export authorization.
+
+## Product walkthrough
+
+### Upload and product flow
+
+The responsive landing experience explains the workflow, supported inputs, report preview, and one-time payment model.
+
+<img src="./docs/screenshots/landing-upload-mobile.png" alt="Pnlwise landing and statement upload experience" width="390">
+
+### Transaction review
+
+Low-confidence and policy-sensitive transactions are surfaced for review before report generation.
+
+![Pnlwise transaction review workspace](./docs/screenshots/transaction-review.png)
+
+### P&L report and exports
+
+The report presents deterministic revenue, cost, expense, and net-profit totals. Paid exports are offered from the same server-authorized report state.
+
+![Pnlwise desktop profit-and-loss report and export state](./docs/screenshots/pnl-report-desktop.png)
+
+The report workflow also supports a focused mobile layout.
+
+<img src="./docs/screenshots/sample-report-mobile.png" alt="Pnlwise sample profit-and-loss report on mobile" width="390">
+
+All screenshots use synthetic demonstration data.
+
+## Key features
+
+- CSV, XLSX, and supported text-based PDF ingestion
+- Transaction parsing, validation, and normalization
+- Duplicate detection across uploaded statements
+- Transfer matching and loan principal/interest handling
+- Deterministic rules with server-side AI-assisted categorization
+- Confidence thresholds and manual review for uncertain transactions
+- Deterministic cash-basis P&L generation using integer-cent arithmetic
+- Paddle Checkout with signed, idempotent webhook fulfillment
+- Server-side paid-export authorization
+- PDF, XLSX, and CSV exports
+- Temporary report retention and user-triggered data deletion
+- Upload, processing, AI, event, and export abuse controls
+
+## Architecture
+
+```mermaid
+flowchart LR
+    B[Browser] --> A[Next.js App Router UI<br/>via Vinext]
+    A --> W[Cloudflare Worker<br/>server routes]
+    W --> P[Parsing and normalization]
+    P --> C[Rules and AI-assisted<br/>categorization]
+    C --> R[Review and deterministic<br/>P&L generation]
+    W <--> D[(Cloudflare D1)]
+    W --> O[OpenAI Responses API]
+    W --> PP[Paddle API and webhooks]
 ```
 
-Apply later `drizzle/*.sql` migrations in order, once per database. The local server defaults to `http://127.0.0.1:5173`.
+- **Application:** Next.js 16 App Router architecture through Vinext, React 19, TypeScript, Vite, and Tailwind CSS
+- **Runtime:** Cloudflare Worker server routes
+- **Data:** Cloudflare D1 with Drizzle schema and migrations
+- **AI:** OpenAI Responses API with strict structured output and Zod validation
+- **Payments:** Paddle Checkout and signed webhooks
+- **Optional authentication:** Supabase SSR authentication with PKCE and HttpOnly cookies
+
+Financial amounts are stored and calculated as integer cents. D1 writes use prepared statements, optimistic revisions, ownership checks, and conditional updates for security-sensitive state transitions.
+
+## AI and privacy boundary
+
+- Uploaded source files are processed in memory and are not intentionally retained as raw documents.
+- Normalized transactions and report state are stored temporarily according to the configured retention period.
+- OpenAI requests are made only from server-side code.
+- OpenAI receives selected transaction fields, not the uploaded source document.
+- Descriptions are truncated and long numeric sequences are redacted before eligible transactions are sent for categorization.
+- Requests use `store: false`, strict structured output, exact transaction-ID matching, and Zod validation.
+- Missing, malformed, or low-confidence AI results fall back to manual review.
+- AI cannot alter source amounts, transaction directions, report totals, ownership, or payment state.
+
+These controls minimize data exposure but do not claim complete anonymization or regulatory certification.
+
+## Payment and export security
+
+The deployed product uses Paddle Live for its active one-time payment flow.
+
+- The browser receives only the intended public Paddle client configuration and server-created transaction ID.
+- Paddle API credentials and webhook signing material remain server-side.
+- The webhook handler verifies the signed raw request body with the Paddle SDK.
+- Fulfillment checks the stored transaction, report/payment identifiers, selected catalog item, quantity, amount, currency, environment, and completed payment state.
+- Conditional D1 updates make duplicate webhook delivery idempotent.
+- Checkout success redirects and client events never mark a report as paid.
+- Export endpoints independently enforce ownership, paid status, completed report state, and resolved review items.
+
+The repository also retains an inactive Stripe Test Mode rollback path. It is not connected to the active checkout UI or checkout API and rejects live Stripe events.
+
+## Testing and quality
+
+Current verified baseline:
+
+- **178 automated tests passing** across parsing, normalization, deduplication, transfers, loans, AI validation/fallbacks, D1 atomicity, payments, retention, authorization, and exports
+- **6/6 Playwright E2E tests passing** against an isolated local Worker and D1 database
+- ESLint: pass
+- TypeScript typecheck: pass
+- Staging build: pass
+- Production build: pass
+- Production dependency audit: **0 critical / 0 high**
+
+Tests use the Node.js test runner, Playwright, Miniflare, and local Cloudflare D1 tooling. This evidence is automated validation, not a penetration test or security certification.
+
+## Synthetic financial fixtures
+
+All committed financial QA fixtures were created for testing and contain no real customer financial data:
+
+- `tests/fixtures/01_January_Statement.csv`
+- `tests/fixtures/02_February_Statement.xlsx`
+- `tests/fixtures/03_March_Statement.pdf`
+- `tests/fixtures/business.csv`
+
+They exercise multiple periods, file formats, categorization cases, duplicate detection, transfers, loans, and export calculations.
+
+## Tech stack
+
+| Area | Technologies |
+| --- | --- |
+| Frontend | React 19, TypeScript, Tailwind CSS, Base UI/Radix primitives |
+| Application | Next.js 16 App Router architecture, Vinext, Vite |
+| Runtime | Cloudflare Workers |
+| Data | Cloudflare D1, Drizzle ORM |
+| AI | OpenAI Responses API, structured outputs, Zod |
+| Payments | Paddle Checkout, Paddle Node SDK, signed webhooks |
+| Files and exports | Papa Parse, ExcelJS, unpdf, pdf-lib, JSZip |
+| Testing | Node.js test runner, Playwright, Miniflare |
+
+## Local development
+
+### Requirements
+
+- Node.js `>=22.13.0`
+- npm
+- Google Chrome for Playwright E2E tests
+
+### Install and configure
 
 ```sh
+npm ci
+cp .env.example .env.local
+```
+
+Keep real credentials only in the ignored `.env.local` file. The checked-in example contains placeholders and documents the available public and server-only settings. Core rules-based processing works without OpenAI or payment credentials; integrations fail closed when not configured.
+
+### Local D1 runtime
+
+Build the staging Worker, apply the tracked migrations to an isolated local D1 database in order, then start the local Worker:
+
+```sh
+npm run build:staging
+npx wrangler d1 execute pnlwise-staging --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_kind_morlun.sql
+npx wrangler d1 execute pnlwise-staging --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0001_low_madame_hydra.sql
+npx wrangler d1 execute pnlwise-staging --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0002_high_liz_osborn.sql
+npm run start
+```
+
+Use only local or sandbox provider credentials during development.
+
+### Quality commands
+
+```sh
+npm run lint
 npm run typecheck
 npm test
-npm run test:e2e
+npm run build:staging
+npm run build
 ```
 
-Browser tests use an installed Google Chrome. `tests/fixtures/business.csv` contains synthetic data. Test outputs and browser screenshots are ignored under `outputs/` and `test-results/`.
-
-## Production deployment
-
-Use the tracked production deployment command:
+With the local Worker running:
 
 ```sh
-npm run deploy:production
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:8787 npm run test:e2e
 ```
 
-It builds the production Worker, then deploys `dist/server/wrangler.json` with
-`--keep-vars`. The generated Wrangler configuration intentionally contains no
-runtime variables; production Runtime Variables and Secrets are maintained in
-the Cloudflare Dashboard. `--keep-vars` is therefore mandatory so a deployment
-does not remove that Dashboard configuration. Do not run a direct production
-`wrangler deploy` command without it.
+Production deployment configuration is retained for maintainers but intentionally omitted from this portfolio-oriented setup guide.
 
-Production builds disable the stable `workers.dev` URL while retaining version
-preview URLs. The Dashboard-managed `pnlwise.com` Custom Domain remains the
-public application route. Public SEO URLs use the tracked canonical origin
-`https://pnlwise.com`; `APP_ORIGIN` remains a separate runtime setting for
-checkout and external callbacks.
+## Limitations
 
-## Stack and boundaries
+- PDF support targets supported text-based statement layouts. Scanned documents require OCR, which is not implemented.
+- Encrypted, damaged, ambiguous, partially extracted, formula-driven, or macro-enabled files are rejected with guidance to use CSV/XLSX where appropriate.
+- The generated output is an estimated cash-basis financial report, not audited or certified accounting work.
+- Transaction review remains necessary because bank descriptions may not establish the correct business treatment.
+- Optional OpenAI, Paddle, Supabase, monitoring, and email/provider behavior requires separately configured services.
 
-- React, TypeScript, Next.js App Router APIs via Vinext, Tailwind, and shadcn primitives.
-- Cloudflare Worker + D1 through Sites. This uses the workspace's supported hosting stack rather than requiring PostgreSQL/Supabase credentials for the initial preview. Supabase is an optional authentication provider.
-- Source files are processed in memory and discarded at the end of each upload request. There is no raw-file storage bucket and no public upload URL.
-- Normalized statements, transactions, rules, and report details live in one private versioned report document in D1. Payment records and analytics events have separate tables. Optimistic revisions reject concurrent stale writes.
-- Files are capped at 10 MB each, 24 statements and 5,000 transactions per report, and 1.8 MB of normalized report JSON to stay below D1 row limits. Oversized reports receive a split-period instruction.
-- Financial amounts are integer cents. AI cannot set amounts, dates, directions, totals, report ownership, or payment status.
+## Source availability
 
-## Product and legal configuration
+This source is published for portfolio and code-review purposes. No license is granted to reuse, redistribute, or commercially exploit the project code unless separately permitted by the owner. Third-party packages, components, fonts, and other dependencies remain subject to their respective licenses and notices.
 
-`lib/config.ts` is the single source of public product defaults and the canonical production origin. `.env.example` lists build-time `NEXT_PUBLIC_*` overrides and server-only settings. Change service name, price, retention days, and confidence thresholds there. Rebuild after changing public settings so visible prices and server checkout amounts remain identical.
-
-`LEGAL_OPERATOR_NAME` and `SUPPORT_EMAIL` are required runtime settings for payment-enabled environments. They must identify the verified service operator and a monitored support mailbox. Missing or invalid values disable checkout and legal pages show a noncommercial configuration notice. Secrets must never use the `NEXT_PUBLIC_` prefix, enter Git, or appear in client code.
-
-## Parsing and review
-
-- CSV: quoted fields, detected headers, debit/credit or signed amounts, manual mapping, and explicit sign convention. Dates are ISO or US month/day/year. Amounts are validated before parsing; malformed rows fail the entire file with row numbers.
-- XLSX: one transaction sheet, typed Excel dates, ZIP expansion/complexity checks. Workbooks with formulas, macros, external links, or multiple data sheets request a CSV export.
-- PDF: text extraction with coordinate-based line reconstruction. The parser supports full dates with explicitly signed amounts or CR/DR suffixes, plus tables with distinct labeled Debit and Credit columns. Scanned files, encrypted/damaged PDFs, missing directions, ambiguous layout, and partial extraction are rejected with a CSV/XLSX alternative. **No OCR or claim of universal bank support.** Validate against real target-bank exports before marketing broad PDF compatibility.
-- Identical file hashes are idempotently ignored. Possible transaction overlaps across statements require confirmation and are not silently removed. Known distinct account labels prevent false duplicate matches.
-- Transfer pairing requires distinct specified accounts, matching amounts, opposite directions, nearby dates, and transfer descriptions. Ambiguous transfers remain under review.
-- Refunds use the original income/expense category to offset it. Unknown refund treatment cannot be confirmed as a generic exclusion.
-- Loan proceeds and principal stay out of P&L. An explicit user-entered interest amount can split a repayment; principal + interest preserves the original payment exactly.
-
-## Integrations (off until configured)
-
-### Paddle environments
-
-Set `PADDLE_API_KEY`, `PADDLE_NOTIFICATION_WEBHOOK_SECRET`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `PADDLE_ENVIRONMENT`, `NEXT_PUBLIC_PADDLE_ENV`, and `APP_ORIGIN`. `PADDLE_ENVIRONMENT` and `NEXT_PUBLIC_PADDLE_ENV` must both be `sandbox` or both be `production`; omitted values default to `sandbox` to preserve the current deployment. Any invalid selector, mismatch, missing value, Sandbox/Live credential mix, missing operational identity, wrong public price, or missing origin disables Paddle fail-closed.
-
-Sandbox requires an API key beginning `pdl_sdbx_apikey_` and client token beginning `test_`. Production requires an API key beginning `pdl_live_apikey_` and client token beginning `live_`. Keep each environment's API key, client token, and webhook signing secret separate. Never copy Live credentials into Sandbox configuration or expose server secrets through `NEXT_PUBLIC_*` variables.
-
-`NEXT_PUBLIC_PADDLE_CLIENT_TOKEN` and `NEXT_PUBLIC_PADDLE_ENV` are embedded in the browser bundle at build time. Set them before building; changing only Cloudflare runtime variables does not change an existing client bundle. The server and browser selectors are still compared server-side before checkout is enabled.
-
-The selected environment chooses the Paddle Node SDK and Paddle.js environment plus its fixed catalog mapping. Sandbox uses product `pro_01m2n0p1mp3cxd2rnamzvyych0` and price `pri_01m2n0p21kzx2crfnp99fph3v4`. Production uses product `pro_01m3ems5s0zs9f9qjdebp2c3y7` and price `pri_01m3ems5yqsxjerf0k2rdpnxwg`. The current production deployment must remain configured as `sandbox` until a separately authorized Live activation.
-
-Checkout creates a server-side transaction for the selected fixed price and passes only its transaction ID to Paddle.js. The catalog price restricts quantity to exactly one. Webhooks use the matching environment's signing secret and official Paddle SDK against the raw request body, then validate `transaction.completed`, a captured payment attempt, stored transaction ID, report ID, payment ID, selected product, selected price, one-time billing shape, quantity, amount, currency, and zero discount. Duplicate events are idempotent. Exports require ownership, verified paid status, a generated report, and no outstanding review items. A success URL or client event is never accepted as proof of payment.
-
-For Sandbox, configure the default payment link as `${APP_ORIGIN}/checkout` and a Sandbox notification destination at `${APP_ORIGIN}/api/paddle/webhook` subscribed only to `transaction.completed`. Before any later Live activation, drain Sandbox payments in `creating` or `pending`, build with the production public values, configure the separate Live runtime secrets, and test the complete Live path under separate authorization. This repository change does not activate Live payments.
-
-### Legacy Stripe rollback path
-
-The prior Stripe Test Mode implementation and `/api/stripe/webhook` remain in the codebase for rollback until Paddle Sandbox E2E is complete. It is not reachable from the active checkout UI or checkout API.
-
-### OpenAI categorization
-
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` to an available Structured Outputs-capable model. The Responses API uses a strict JSON schema, `store: false`, explicit category and transaction-type enums, a Zod response validator, and exact transaction ID matching. Unknown and medium-confidence non-exclusion rows are sent in bounded batches; descriptions are truncated and long numeric sequences are redacted. AI exclusions and incoming credits of $5,000 or more remain in Review regardless of model confidence. This is data minimization, not comprehensive PII removal. Confirm the provider's applicable data controls before commercial use.
-
-Run `npm run test:ai-qa` with those environment variables to evaluate the mixed CSV/XLSX/PDF fixture. It reports the rules-only and AI Review counts, incorrect classifications, abstentions, and threshold results without printing the API key.
-
-AI failure preserves extracted data and falls back to manual review. Large incoming AI-classified payments remain below the review threshold. Rules-only processing works with no API key.
-
-### Optional accounts
-
-Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Configure Supabase Auth for email magic links and Google, allow the exact `/auth/confirm` callback URL, and configure reliable email delivery. The Supabase SSR client uses PKCE and HttpOnly cookies. `/auth/confirm` exchanges the code and verifies the user with `getUser()` before attaching session resources to that account. Every report read/write validates either the anonymous session or the verified account ID. No password flow or signup wall is added.
-
-This optional integration cannot be end-to-end verified without a configured Auth project; its controls are hidden while unconfigured. Account linking does not extend report retention. Sign-out removes anonymous access from that browser. Data deletion removes accessible report documents; the provider account itself is not deleted.
-
-### Analytics and monitoring
-
-Funnel events are persisted server-side in D1 `events`. Client-supplied metadata is allowlisted; no raw descriptions, filenames, financial amounts, or business names enter analytics. Error events store error class names only. See `lib/server.ts` for the scrubbed server error boundary.
-
-Server-side operational failures are sent to Sentry only when marked `alertable`. Events contain stable error, subsystem, route, stage, retryability, environment, and optional validated provider-request identifiers. They omit request bodies, cookies, authorization data, report contents, financial values, customer data, breadcrumbs, and user context. Configure `SENTRY_DSN` as a server secret and `SENTRY_ENVIRONMENT` as a non-secret deployment label. The authenticated staging-only `/api/monitoring/proof` route can verify ingestion without customer data. Configure a Sentry issue alert filtered to `alertable:true` for email or the chosen on-call channel before launch.
-
-## Data retention and security
-
-- HttpOnly, SameSite session cookies; Secure in production.
-- Random 256-bit-class session tokens; only their hashes are stored as ownership identifiers.
-- Same-origin mutation checks, prepared statements, private/no-store API responses, and server-side export authorization.
-- Raw statements are discarded immediately after reading, including failed requests.
-- Anonymous and linked report access expires after the configured period (30 days by default).
-- Expired records are deleted in bounded batches on report creation and by the production Cloudflare Cron Trigger at 03:17 UTC daily. The scheduled Worker calls retention directly without a maintenance secret; authenticated POST `/api/maintenance` remains available for manual recovery. Purchases in `creating` or `pending` continue to protect expired report data until Paddle terminality can be established safely. Payment records and payment completion audit events are preserved. Ordinary analytics older than 90 days and expired rate-limit buckets are also cleaned.
-- Delete My Data removes reports, normalized transactions, statements, and merchant rules in the current session and linked account. Minimal payment records remain separate.
-- Deletion does not promise instantaneous erasure of infrastructure backups. Provider backup policies and the final legal retention policy need review before launch.
-
-## Remaining production activation
-
-1. Verify the service name/domain/support mailbox; review legal terms for the operator and jurisdiction.
-2. Choose public production hosting/access and update the central canonical origin. Private preview publication does not expose anonymous public access or SEO indexing.
-3. Keep Paddle configured as `sandbox` and test checkout → `transaction.completed` webhook delivery → paid downloads. Activate the implemented production selector only through a separate reviewed cutover; Live Paddle remains disabled.
-4. Configure optional OpenAI and Supabase Auth; test real providers before describing them as live.
-5. Verify retention Cron Events and error alerts; perform real-bank parsing QA and a security review.
-6. Register Google Search Console and Bing Webmaster Tools after public deployment.
-
-The preview is a runnable implementation, not a claim of commercial launch readiness or universal PDF parsing accuracy.
-
-## Primary implementation references
+## Implementation references
 
 - [Paddle Checkout](https://developer.paddle.com/build/checkout/build-overlay-checkout)
 - [Paddle webhook signatures](https://developer.paddle.com/webhooks/signature-verification)
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
-- [Supabase server-side auth](https://supabase.com/docs/guides/auth/server-side/creating-a-client)
+- [Supabase server-side authentication](https://supabase.com/docs/guides/auth/server-side/creating-a-client)
 - [unpdf](https://github.com/unjs/unpdf)
 - [ExcelJS](https://github.com/exceljs/exceljs)
